@@ -1,0 +1,215 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+.md\:h-96 {
+  height: 30rem !important;
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 205 80% 20%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 205 80% 20%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 205 80% 20%;
+
+    --primary: 203 65% 28%;
+    --primary-foreground: 0 0% 100%;
+    --primary-light: 203 60% 45%;
+    --primary-dark: 203 75% 18%;
+
+    --secondary: 200 60% 92%;
+    --secondary-foreground: 203 65% 28%;
+
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+
+    --accent: 35 95% 55%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 203 65% 28%;
+
+    --gradient-hero: linear-gradient(135deg, hsl(203 65% 28%), hsl(203 60% 45%));
+    --gradient-subtle: linear-gradient(180deg, hsl(0 0% 100%), hsl(200 60% 98%));
+
+    --shadow-card: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --shadow-elevated: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* ── Blog color tokens ── */
+    --color-text-primary:    hsl(205, 80%, 20%);
+    --color-text-secondary:  hsl(205, 50%, 40%);
+    --color-text-tertiary:   hsl(205, 30%, 58%);
+    --color-bg-primary:      hsl(0, 0%, 100%);
+    --color-bg-secondary:    hsl(200, 60%, 97%);
+    --color-bg-card:         hsl(0, 0%, 100%);
+    --color-bg-tertiary:     hsl(200, 40%, 95%);
+    --color-border-primary:  hsl(214, 32%, 91%);
+    --color-border-secondary: hsl(214, 20%, 95%);
+  }
+
+  .dark {
+    --background: 205 90% 8%;
+    --foreground: 210 40% 98%;
+
+    --card: 205 80% 12%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 205 80% 12%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 203 60% 45%;
+    --primary-foreground: 0 0% 100%;
+    --primary-light: 203 55% 60%;
+    --primary-dark: 203 70% 30%;
+
+    --secondary: 205 70% 15%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 35 95% 60%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 205 50% 20%;
+    --input: 205 50% 20%;
+    --ring: 203 60% 45%;
+
+    --gradient-hero: linear-gradient(135deg, hsl(203 70% 20%), hsl(203 60% 35%));
+    --gradient-subtle: linear-gradient(180deg, hsl(205 90% 8%), hsl(205 85% 12%));
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', sans-serif;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: 'Inter', sans-serif;
+  }
+}
+
+/* Hide native scrollbars for the horizontal testimonial carousel */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  /* IE and Edge */
+  scrollbar-width: none;
+  /* Firefox */
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+  /* Safari and Chrome */
+}
+
+/* Hide scrollbar utility for blog filter row */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* ─────────────────────────────────────────
+   Blog component classes — all via @apply
+───────────────────────────────────────── */
+@layer components {
+  /* Buttons */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5
+           text-sm font-semibold bg-primary text-primary-foreground
+           hover:bg-primary-dark shadow-sm hover:shadow-md
+           transition-all duration-200;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5
+           text-sm font-semibold bg-secondary text-secondary-foreground
+           border border-primary/20 hover:bg-secondary/80
+           transition-all duration-200;
+  }
+  .btn-outline {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5
+           text-sm font-semibold border-2 border-primary text-primary
+           bg-transparent hover:bg-secondary
+           transition-all duration-200;
+  }
+
+  /* Input */
+  .input-clean {
+    @apply w-full rounded-xl border border-border bg-white px-4 py-2.5 text-sm
+           text-foreground placeholder:text-muted-foreground
+           focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary
+           transition-colors;
+  }
+
+  /* Blog rendered HTML content */
+  .blog-content          { @apply leading-relaxed text-foreground; }
+  .blog-content h1       { @apply text-3xl font-bold mt-8 mb-4; }
+  .blog-content h2       { @apply text-2xl font-bold mt-6 mb-3; }
+  .blog-content h3       { @apply text-xl  font-semibold mt-5 mb-2; }
+  .blog-content h4,
+  .blog-content h5,
+  .blog-content h6       { @apply text-lg font-semibold mt-4 mb-2; }
+  .blog-content p        { @apply mb-4; }
+  .blog-content a        { @apply text-primary underline underline-offset-2 hover:text-primary-dark; }
+  .blog-content ul       { @apply list-disc pl-6 mb-4 space-y-1; }
+  .blog-content ol       { @apply list-decimal pl-6 mb-4 space-y-1; }
+  .blog-content blockquote {
+    @apply border-l-4 border-primary/40 pl-4 italic text-muted-foreground my-4;
+  }
+  .blog-content code     { @apply bg-muted rounded px-1.5 py-0.5 text-sm font-mono; }
+  .blog-content pre      {
+    @apply bg-gray-900 text-gray-100 rounded-xl p-4 overflow-x-auto mb-4 text-sm;
+  }
+  .blog-content pre code { @apply bg-transparent p-0; }
+  .blog-content img      { @apply rounded-xl max-w-full h-auto my-4; }
+  .blog-content table    { @apply w-full border-collapse mb-4; }
+  .blog-content th       { @apply border border-border bg-muted px-3 py-2 text-left text-sm font-semibold; }
+  .blog-content td       { @apply border border-border px-3 py-2 text-sm; }
+}
