@@ -141,8 +141,20 @@ const Footer = () => {
           </div>
         </div>
 
-        <div className="border-t border-primary-foreground/20 pt-6 text-center text-sm opacity-80">
+        <div className="border-t border-primary-foreground/20 pt-6 flex flex-col items-center gap-2 text-sm opacity-80">
           <p>&copy; {new Date().getFullYear()} Nova Tuitions. All rights reserved.</p>
+          <div className="text-xs text-gray-300 flex flex-wrap justify-center items-center gap-2">
+            <span>Developed by</span>
+            <a
+              href="https://webarya.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-bold hover:text-[#ddaa2c] transition"
+              style={{ color: '#ddaa2c' }}
+            >
+              WebArya
+            </a>
+          </div>
         </div>
       </div>
     </footer>
