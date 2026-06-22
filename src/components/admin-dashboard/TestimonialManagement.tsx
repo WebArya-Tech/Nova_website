@@ -1,80 +1,244 @@
 import React, { useState, useEffect } from 'react';
-import { Star, Trash2, Check, X, AlertCircle, Eye } from 'lucide-react';
+import { Star, Trash2, X, AlertCircle, Plus, Image as ImageIcon, Upload, Save, Edit, Headphones } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
   getAllTestimonials,
-  approveTestimonial,
-  rejectTestimonial,
   deleteTestimonial,
-} from '@/api/testimonialApi';
-
-const STATIC_TESTIMONIALS = [
-  {
-    _id: 'static-1',
-    name: 'Priya Sharma',
-    role: 'CBSE Grade 12 Student',
-    status: 'approved',
-    rating: 5,
-    message:
-      'Nova Tuitions has completely transformed the way I study for my board exams. The structured sessions, live doubt classes, and dedicated faculty support made a huge difference. I scored 95% in Mathematics — something I could not have achieved without this platform!',
-  },
-];
+  setPrimaryTestimonial,
+  updateTestimonial,
+  createTestimonialAdmin,
+  exportTestimonialsToCSV
+} from '../../api/api/testimonialApi.js';
+import { uploadToCloudinary } from '../../utils/cloudinaryUpload';
 
 export default function TestimonialManagement() {
   const [testimonials, setTestimonials] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [actionLoading, setActionLoading] = useState(null);
-  const [viewModal, setViewModal] = useState(null);
+  const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [formData, setFormData] = useState({
+    text: '',
+    mediaUrl: '',
+    name: '',
+    role: 'Student',
+    category: 'IGCSE',
+    rating: 5
+  });
+  const [mediaFile, setMediaFile] = useState(null);
+  const [mediaPreview, setMediaPreview] = useState(null);
+  const [uploading, setUploading] = useState(false);
+
+  const getMediaUrl = (testimonial) => {
+    const direct = testimonial.mediaUrl || testimonial.image || testimonial.videoUrl || testimonial.audioUrl || '';
+    if (direct) return direct;
+    const content = testimonial.content || '';
+    return typeof content === 'string' && (content.startsWith('http') || content.startsWith('data:')) ? content : '';
+  };
+
+  const getMediaType = (url) => {
+    if (!url || typeof url !== 'string') return 'none';
+    if (url.startsWith('data:video/') || url.match(/\.(mp4|webm|mov|m4v)(\?.*)?$/i)) return 'video';
+    if (url.startsWith('data:audio/') || url.match(/\.(mp3|wav|ogg|m4a)(\?.*)?$/i)) return 'audio';
+    if (url.startsWith('data:image/') || url.match(/\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i)) return 'image';
+    return 'link';
+  };
+
+  const renderMediaPreview = (url, className = 'w-full h-full') => {
+    const type = getMediaType(url);
+    if (type === 'image') return <img src={url} alt="Preview" className={`${className} object-cover`} />;
+    if (type === 'video') return <video src={url} className={`${className} object-cover`} controls />;
+    if (type === 'audio') return <div className="w-full h-full bg-purple-50 flex items-center justify-center"><Headphones className="text-purple-600" size={24} /></div>;
+    return <div className="w-full h-full bg-blue-50 flex items-center justify-center"><ImageIcon className="text-blue-600" size={24} /></div>;
+  };
 
   useEffect(() => {
     fetchTestimonials();
   }, [selectedStatus]);
 
+  const DEFAULT_TESTIMONIALS = [
+    {
+      id: 'default-1',
+      _id: 'default-1',
+      name: 'Mrs. Bindhu',
+      reviewerName: 'Mrs. Bindhu',
+      text: 'My daughter has been attending classes at Nova Tuitions for the past 6 months. The improvement in her math scores is remarkable. The teachers are patient, knowledgeable, and truly care about each student\'s progress.',
+      role: 'Parent',
+      category: 'IGCSE',
+      rating: 5,
+      status: 'APPROVED',
+      primary: true
+    }
+  ];
+
   const fetchTestimonials = async () => {
     setLoading(true);
     try {
       const data = await getAllTestimonials();
-      setTestimonials([...STATIC_TESTIMONIALS, ...(data || [])]);
+      const testimonialList = data?.content || (Array.isArray(data) ? data : []);
+      setTestimonials(testimonialList.length > 0 ? testimonialList : DEFAULT_TESTIMONIALS);
     } catch (error) {
       console.error('Error fetching testimonials:', error);
-      toast.error('Failed to load testimonials');
-      setTestimonials(STATIC_TESTIMONIALS);
+      setTestimonials(DEFAULT_TESTIMONIALS);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleApprove = async (id) => {
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+    if (name === 'mediaUrl') setMediaPreview(value);
+  };
+
+  const handleMediaChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const isImage = file.type.startsWith('image/');
+    const isVideo = file.type.startsWith('video/');
+    const isAudio = file.type.startsWith('audio/');
+    const maxSize = isImage ? 5 * 1024 * 1024 : 50 * 1024 * 1024;
+    
+    if (file.size > maxSize) {
+      toast.error(`File size too large. Max ${isImage ? '5MB' : '50MB'} allowed.`);
+      return;
+    }
+
+    setMediaFile(file);
+    setUploading(true);
+    setFormData(prev => ({ ...prev, type: 'URL', mediaUrl: '' }));
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setMediaPreview(reader.result);
+      setUploading(false);
+      const fileType = isVideo ? 'Video' : isAudio ? 'Audio' : 'Image';
+      toast.success(`${fileType} selected successfully! File: ${file.name}`);
+    };
+    reader.onerror = () => {
+      setUploading(false);
+      toast.error('Unable to read selected media. Please try another file.');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!formData.text && !mediaFile) {
+      toast.error('Please provide at least text or media');
+      return;
+    }
+
+    setActionLoading('submitting');
+    try {
+      let finalMediaUrl = formData.mediaUrl;
+
+      if (mediaFile) {
+        setUploading(true);
+        toast.loading('Uploading media...', { id: 'media-upload-toast' });
+        try {
+          const uploadedUrl = await uploadToCloudinary(mediaFile);
+          finalMediaUrl = uploadedUrl;
+          toast.success('Media uploaded successfully!', { id: 'media-upload-toast' });
+        } catch (uploadError) {
+          console.warn('Cloud upload unavailable. Saving local preview instead:', uploadError);
+          finalMediaUrl = mediaPreview;
+          toast.success('Media saved for preview', { id: 'media-upload-toast' });
+        }
+        setUploading(false);
+      }
+
+      const payload = {
+        text: formData.text,
+        mediaUrl: finalMediaUrl,
+        name: formData.name,
+        reviewerName: formData.name,
+        role: formData.role,
+        category: formData.category,
+        rating: Number(formData.rating)
+      };
+
+      if (editingId) {
+        await updateTestimonial(editingId, payload);
+        toast.success('Testimonial updated successfully');
+      } else {
+        await createTestimonialAdmin(payload);
+        toast.success('Testimonial added successfully');
+      }
+
+      setIsAdding(false);
+      setEditingId(null);
+      resetForm();
+      fetchTestimonials();
+    } catch (error) {
+      console.error('Submission error:', error);
+      toast.error(error?.message || 'Failed to save testimonial');
+    } finally {
+      setActionLoading(null);
+      setUploading(false);
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      text: '',
+      mediaUrl: '',
+      name: '',
+      role: 'Student',
+      category: 'IGCSE',
+      rating: 5
+    });
+    setMediaFile(null);
+    setMediaPreview(null);
+  };
+
+  const handleExport = async () => {
+    try {
+      const blob = await exportTestimonialsToCSV();
+      const url = window.URL.createObjectURL(new Blob([blob]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `testimonials-export-${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success('Export started');
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export testimonials');
+    }
+  };
+
+  const handleSetPrimary = async (id) => {
     setActionLoading(id);
     try {
-      await approveTestimonial(id);
-      setTestimonials((prev) =>
-        prev.map((t) => (t._id === id ? { ...t, status: 'approved' } : t))
-      );
-      toast.success('Testimonial approved');
+      await setPrimaryTestimonial(id);
+      toast.success('Testimonial set as primary');
+      await fetchTestimonials();
     } catch (error) {
-      console.error('Error approving testimonial:', error);
-      toast.error('Failed to approve testimonial');
+      console.error('Error setting primary testimonial:', error);
+      toast.error('Failed to set primary testimonial');
     } finally {
       setActionLoading(null);
     }
   };
 
-  const handleReject = async (id) => {
-    setActionLoading(id);
-    try {
-      await rejectTestimonial(id);
-      setTestimonials((prev) =>
-        prev.map((t) => (t._id === id ? { ...t, status: 'rejected' } : t))
-      );
-      toast.success('Testimonial rejected');
-    } catch (error) {
-      console.error('Error rejecting testimonial:', error);
-      toast.error('Failed to reject testimonial');
-    } finally {
-      setActionLoading(null);
-    }
+  const handleEdit = (t) => {
+    const id = t.id || t._id;
+    setEditingId(id);
+    setFormData({
+      text: t.text || t.message || t.quote || t.content || '',
+      mediaUrl: t.mediaUrl || t.videoUrl || t.image || '',
+      name: t.name || t.reviewerName || '',
+      role: t.role || 'Student',
+      category: t.category || 'IGCSE',
+      rating: t.rating || 5
+    });
+    setMediaPreview(t.mediaUrl || t.videoUrl || t.image || '');
+    setIsAdding(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleDelete = async (id) => {
@@ -82,7 +246,7 @@ export default function TestimonialManagement() {
     setActionLoading(id);
     try {
       await deleteTestimonial(id);
-      setTestimonials((prev) => prev.filter((t) => t._id !== id));
+      setTestimonials((prev) => prev.filter((t) => (t.id !== id && t._id !== id)));
       toast.success('Testimonial deleted');
     } catch (error) {
       console.error('Error deleting testimonial:', error);
@@ -95,193 +259,339 @@ export default function TestimonialManagement() {
   const filteredTestimonials =
     selectedStatus === 'all'
       ? testimonials
-      : testimonials.filter((t) => t.status === selectedStatus);
+      : testimonials.filter((t) => (t.status || '').toLowerCase() === selectedStatus);
 
   const statusBadge = (status) => {
+    const s = (status || 'PENDING').toUpperCase();
     const map = {
-      approved: 'bg-green-100 text-green-800',
-      rejected: 'bg-red-100 text-red-800',
-      pending: 'bg-yellow-100 text-yellow-800',
+      APPROVED: 'bg-green-100 text-green-800',
+      REJECTED: 'bg-red-100 text-red-800',
+      PENDING: 'bg-yellow-100 text-yellow-800',
     };
     return (
-      <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${map[status] || map.pending}`}>
-        {status}
+      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${map[s] || map.PENDING}`}>
+        {s}
       </span>
     );
   };
 
+  const stats = [
+    { label: 'Total', count: testimonials.length, color: 'bg-blue-900 text-white' },
+    { label: 'Pending', count: testimonials.filter(t => (t.status || '').toUpperCase() === 'PENDING').length, color: 'bg-yellow-100 text-yellow-800' },
+    { label: 'Approved', count: testimonials.filter(t => (t.status || '').toUpperCase() === 'APPROVED').length, color: 'bg-green-100 text-green-800' },
+    { label: 'Rejected', count: testimonials.filter(t => (t.status || '').toUpperCase() === 'REJECTED').length, color: 'bg-red-100 text-red-800' },
+  ];
+
   return (
     <div className="w-full">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-[#196d83] mb-4">Testimonial Management</h1>
-        <div className="flex gap-3 flex-wrap">
-          {['all', 'pending', 'approved', 'rejected'].map((s) => (
-            <button
-              key={s}
-              onClick={() => setSelectedStatus(s)}
-              className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
-                selectedStatus === s
-                  ? 'bg-[#196d83] text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
-            >
-              {s.charAt(0).toUpperCase() + s.slice(1)}
-            </button>
-          ))}
+      {/* Page Header */}
+      <div className="bg-white border-b-2 border-blue-900 rounded-xl p-4 md:p-6 mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-xl md:text-2xl font-bold text-blue-900">Testimonial Management</h1>
+          <p className="text-gray-500 text-xs md:text-sm mt-1">Review, approve, and manage student testimonials</p>
         </div>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <button 
+            onClick={handleExport}
+            className="flex items-center justify-center gap-2 px-3 md:px-4 py-2 md:py-3 border-2 border-blue-900 text-blue-900 rounded-xl font-bold hover:bg-blue-50 transition-all shadow-sm text-sm"
+          >
+            <Upload size={18} className="rotate-180" /> Export CSV
+          </button>
+          {!isAdding && (
+            <button 
+              onClick={() => { setEditingId(null); resetForm(); setIsAdding(true); }}
+              className="flex items-center justify-center gap-2 px-4 md:px-6 py-2 md:py-3 bg-blue-900 text-white rounded-xl font-bold hover:bg-blue-800 transition-all shadow-lg shadow-blue-900/20 text-sm"
+            >
+              <Plus size={18} /> Add Testimonial
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Add/Edit Testimonial In-line Form */}
+      {isAdding && (
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-lg border border-blue-100 mb-8 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
+            <h2 className="text-lg font-bold text-blue-900">
+              {editingId ? 'Edit Testimonial' : 'Add New Testimonial'}
+            </h2>
+            <button onClick={() => { setIsAdding(false); setEditingId(null); resetForm(); }} className="text-gray-400 hover:text-gray-600 ml-auto sm:ml-0">
+              <X size={20} />
+            </button>
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+              <div>
+                <label className="block text-xs md:text-sm font-semibold text-gray-700 mb-1">Reviewer Name *</label>
+                <input 
+                  name="name"
+                  type="text"
+                  required
+                  value={formData.name}
+                  onChange={handleInputChange}
+                  className="w-full px-3 md:px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 outline-none text-sm"
+                  placeholder="e.g. Mrs. Bindhu"
+                />
+              </div>
+              <div>
+                <label className="block text-xs md:text-sm font-semibold text-gray-700 mb-1">Role *</label>
+                <select
+                  name="role"
+                  value={formData.role}
+                  onChange={handleInputChange}
+                  className="w-full px-3 md:px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 outline-none text-sm"
+                >
+                  <option value="Student">Student</option>
+                  <option value="Parent">Parent</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs md:text-sm font-semibold text-gray-700 mb-1">Category *</label>
+                <select
+                  name="category"
+                  value={formData.category}
+                  onChange={handleInputChange}
+                  className="w-full px-3 md:px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 outline-none text-sm"
+                >
+                  <option value="IGCSE">IGCSE</option>
+                  <option value="AS/A Level">AS/A Level</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+              <div>
+                <label className="block text-xs md:text-sm font-semibold text-gray-700 mb-1">Testimonial Text (Context) *</label>
+                <textarea 
+                  name="text" 
+                  rows="5" 
+                  required
+                  value={formData.text} 
+                  onChange={handleInputChange} 
+                  className="w-full px-3 md:px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 outline-none resize-none text-sm" 
+                  placeholder="Enter the context of the feedback that will appear on the card..."
+                ></textarea>
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs md:text-sm font-semibold text-gray-700 mb-1">Rating</label>
+                  <div className="flex gap-2 p-2 md:p-3 bg-gray-50 rounded-lg">
+                    {[1, 2, 3, 4, 5].map(star => (
+                      <button
+                        key={star}
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, rating: star }))}
+                        className="text-xl md:text-2xl transition-all hover:scale-110"
+                      >
+                        <span className={star <= formData.rating ? 'text-yellow-400' : 'text-gray-300'}>★</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs md:text-sm font-semibold text-gray-700 mb-1">Actual Testimonial Media (Image/Video/Audio)</label>
+                  <div className="flex flex-col sm:flex-row items-center gap-3 sm:gap-4">
+                    {mediaPreview ? (
+                      <div className="relative w-16 h-16 md:w-20 md:h-20 rounded-lg overflow-hidden border border-gray-200 bg-gray-900 shadow-sm shrink-0">
+                        {renderMediaPreview(mediaPreview)}
+                        <button 
+                          type="button" 
+                          onClick={() => {
+                            setMediaFile(null);
+                            setMediaPreview(null);
+                            setFormData(prev => ({ ...prev, mediaUrl: '' }));
+                          }}
+                          className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600 shadow-md"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="w-16 h-16 md:w-20 md:h-20 rounded-lg bg-gray-50 border border-dashed border-gray-300 flex items-center justify-center text-gray-400 shrink-0">
+                        <Upload size={20} className="md:size-24" />
+                      </div>
+                    )}
+                    <label className="flex-1 cursor-pointer">
+                      <div className="flex flex-col items-center justify-center gap-1 px-3 md:px-4 py-3 md:py-4 bg-blue-50 border-2 border-dashed border-blue-200 rounded-xl hover:bg-blue-100 transition-all group">
+                        {uploading ? (
+                          <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                        ) : (
+                          <ImageIcon size={18} className="md:size-20 text-blue-600 group-hover:scale-110 transition-transform" />
+                        )}
+                        <span className="text-xs text-blue-700 font-bold uppercase tracking-tight text-center">
+                          {uploading ? 'Preparing...' : 'Choose Actual Media'}
+                        </span>
+                      </div>
+                      <input 
+                        type="file" 
+                        className="hidden" 
+                        accept="image/*,video/*,audio/*"
+                        onChange={handleMediaChange}
+                      />
+                    </label>
+                  </div>
+                  {(mediaFile || mediaPreview) && (
+                    <p className="mt-2 text-xs font-semibold text-green-700 flex items-center gap-2">
+                      <span className="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                      {mediaFile ? `✓ ${mediaFile.name} ready to upload` : '✓ Media preview loaded successfully'}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs md:text-sm font-semibold text-gray-700 mb-1">Or Paste Actual Media URL</label>
+                  <input 
+                    name="mediaUrl"
+                    type="url"
+                    value={formData.mediaUrl}
+                    onChange={handleInputChange}
+                    className="w-full px-3 md:px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 outline-none text-sm"
+                    placeholder="https://example.com/actual-testimonial.jpg"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row justify-end gap-2 md:gap-3 pt-4 border-t border-gray-100">
+              <button 
+                type="button" 
+                onClick={() => { setIsAdding(false); setEditingId(null); resetForm(); }} 
+                className="w-full sm:w-auto px-4 md:px-6 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition font-medium text-sm"
+              >
+                Cancel
+              </button>
+              <button 
+                type="submit" 
+                disabled={actionLoading === 'submitting' || uploading}
+                className="w-full sm:w-auto px-6 md:px-8 py-2 bg-blue-900 text-white rounded-lg hover:bg-blue-800 transition shadow-md flex items-center justify-center gap-2 disabled:opacity-70 text-sm"
+              >
+                {actionLoading === 'submitting' ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                ) : (
+                  <Save size={16} />
+                )}
+                {actionLoading === 'submitting' ? 'Saving...' : editingId ? 'Update Testimonial' : 'Create Testimonial'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-4 mb-6">
+        {stats.map((s) => (
+          <div key={s.label} className={`rounded-xl p-3 md:p-4 text-center font-semibold ${s.color}`}>
+            <div className="text-xl md:text-2xl font-bold">{s.count}</div>
+            <div className="text-xs md:text-sm mt-1">{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filter Tabs */}
+      <div className="flex gap-2 flex-wrap mb-6">
+        {['all', 'pending', 'approved', 'rejected'].map((s) => (
+          <button
+            key={s}
+            onClick={() => setSelectedStatus(s)}
+            className={`px-3 md:px-4 py-1 md:py-2 rounded-lg font-semibold transition-colors text-xs md:text-sm ${selectedStatus === s
+              ? 'bg-blue-900 text-white'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+          >
+            {s.charAt(0).toUpperCase() + s.slice(1)}
+          </button>
+        ))}
       </div>
 
       {loading ? (
         <div className="text-center py-12">
-          <p className="text-gray-600">Loading testimonials...</p>
+          <p className="text-gray-600 text-sm">Loading testimonials...</p>
         </div>
       ) : filteredTestimonials.length === 0 ? (
-        <div className="text-center py-12 bg-gray-50 rounded-lg">
+        <div className="text-center py-12 bg-gray-50 rounded-xl border border-gray-200">
           <AlertCircle className="mx-auto mb-3 text-gray-400" size={40} />
-          <p className="text-gray-600">
+          <p className="text-gray-600 text-sm">
             No {selectedStatus !== 'all' ? selectedStatus : ''} testimonials found
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-gray-200 shadow-sm">
-          <table className="w-full text-sm">
+        <div className="rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
+          <table className="w-full text-xs md:text-sm">
             <thead>
-              <tr className="bg-[#f0f7fa] text-[#196d83] text-left">
-                <th className="px-4 py-3 font-semibold">#</th>
-                <th className="px-4 py-3 font-semibold">Name</th>
-                <th className="px-4 py-3 font-semibold">Role</th>
-                <th className="px-4 py-3 font-semibold">Rating</th>
-                <th className="px-4 py-3 font-semibold">Status</th>
-                <th className="px-4 py-3 font-semibold">Message</th>
-                <th className="px-4 py-3 font-semibold text-center">Actions</th>
+              <tr className="bg-blue-900 text-white text-left">
+                <th className="px-2 md:px-4 py-2 md:py-3 font-semibold">#</th>
+                <th className="px-2 md:px-4 py-2 md:py-3 font-semibold">Content Preview</th>
+                <th className="px-2 md:px-4 py-2 md:py-3 font-semibold hidden sm:table-cell">Media</th>
+                <th className="px-2 md:px-4 py-2 md:py-3 font-semibold hidden md:table-cell">Status</th>
+                <th className="px-2 md:px-4 py-2 md:py-3 font-semibold text-center">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredTestimonials.map((t, idx) => (
-                <tr key={t._id} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-3 text-gray-500">{idx + 1}</td>
-                  <td className="px-4 py-3 font-semibold text-gray-800 whitespace-nowrap">{t.name}</td>
-                  <td className="px-4 py-3 text-gray-600 max-w-[160px] truncate">{t.role}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-0.5">
-                      {[...Array(5)].map((_, i) => (
-                        <Star
-                          key={i}
-                          size={14}
-                          className={i < t.rating ? 'fill-[#ddaa2c] text-[#ddaa2c]' : 'text-gray-300'}
-                        />
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">{statusBadge(t.status)}</td>
-                  <td className="px-4 py-3 text-gray-600 max-w-[200px]">
-                    <span className="line-clamp-2">{t.message}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                      <button
-                        onClick={() => setViewModal(t)}
-                        className="flex items-center gap-1 px-3 py-1.5 bg-[#196d83] text-white rounded-lg hover:bg-[#145a6e] transition-colors text-xs font-medium"
-                        title="View details"
-                      >
-                        <Eye size={13} /> View
-                      </button>
-                      {t.status === 'pending' && (
-                        <>
-                          <button
-                            onClick={() => handleApprove(t._id)}
-                            disabled={actionLoading === t._id}
-                            className="flex items-center gap-1 px-3 py-1.5 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 text-xs font-medium"
-                          >
-                            <Check size={13} /> Approve
-                          </button>
-                          <button
-                            onClick={() => handleReject(t._id)}
-                            disabled={actionLoading === t._id}
-                            className="flex items-center gap-1 px-3 py-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 text-xs font-medium"
-                          >
-                            <X size={13} /> Reject
-                          </button>
-                        </>
+              {filteredTestimonials.map((t, idx) => {
+                const id = t.id || t._id;
+                const mediaUrl = getMediaUrl(t);
+                const mediaType = getMediaType(mediaUrl);
+                
+                return (
+                  <tr key={id} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
+                    <td className="px-2 md:px-4 py-2 md:py-3 text-gray-500 text-xs">{idx + 1}</td>
+                    <td className="px-2 md:px-4 py-2 md:py-3 text-gray-800 font-medium max-w-24 md:max-w-48">
+                      <span className="line-clamp-2 text-xs md:text-sm">{t.text || t.message || t.quote || t.content}</span>
+                    </td>
+                    <td className="px-2 md:px-4 py-2 md:py-3 hidden sm:table-cell">
+                      {mediaType !== 'none' ? (
+                        <div className="flex items-center gap-2 md:gap-3">
+                          <div className="w-10 h-10 md:w-14 md:h-14 rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
+                            {renderMediaPreview(mediaUrl)}
+                          </div>
+                          <span className="text-[8px] md:text-[10px] font-bold uppercase text-blue-700 bg-blue-50 px-2 py-1 rounded-lg">{mediaType}</span>
+                        </div>
+                      ) : (
+                        <span className="text-gray-400 text-xs italic">Text Only</span>
                       )}
-                      <button
-                        onClick={() => handleDelete(t._id)}
-                        disabled={actionLoading === t._id}
-                        className="flex items-center gap-1 px-3 py-1.5 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors disabled:opacity-50 text-xs font-medium"
-                      >
-                        <Trash2 size={13} /> Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-2 md:px-4 py-2 md:py-3 hidden md:table-cell">
+                      <div className="flex flex-col gap-1">
+                        {statusBadge(t.status)}
+                        {t.primary && (
+                          <span className="bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tighter w-fit">
+                            Primary
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-2 md:px-4 py-2 md:py-3">
+                      <div className="flex flex-wrap gap-1 md:gap-2">
+                        <button
+                          onClick={() => handleSetPrimary(id)}
+                          disabled={actionLoading === id}
+                          className="flex items-center justify-center gap-0.5 md:gap-1 rounded-lg bg-indigo-600 px-2 md:px-3 py-1 md:py-2 text-[10px] md:text-xs font-semibold text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
+                        >
+                          <Star size={12} /> <span className="hidden sm:inline">Featured</span>
+                        </button>
+                        <button
+                          onClick={() => handleEdit(t)}
+                          className="flex items-center justify-center gap-0.5 md:gap-1 rounded-lg bg-amber-500 px-2 md:px-3 py-1 md:py-2 text-[10px] md:text-xs font-semibold text-white transition-colors hover:bg-amber-600"
+                          title="Edit details"
+                        >
+                          <Edit size={12} /> <span className="hidden sm:inline">Edit</span>
+                        </button>
+                        <button
+                          onClick={() => handleDelete(id)}
+                          disabled={actionLoading === id}
+                          className="flex items-center justify-center gap-0.5 md:gap-1 rounded-lg bg-red-600 px-2 md:px-3 py-1 md:py-2 text-[10px] md:text-xs font-semibold text-white transition-colors hover:bg-red-700 disabled:opacity-50"
+                        >
+                          <Trash2 size={12} /> <span className="hidden sm:inline">Delete</span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-        </div>
-      )}
-
-      {/* View Message Modal */}
-      {viewModal && (
-        <div
-          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-          onClick={() => setViewModal(null)}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-2xl p-6 max-w-lg w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-lg font-bold text-[#196d83]">{viewModal.name}</h3>
-                <p className="text-sm text-gray-500">{viewModal.role}</p>
-              </div>
-              <button
-                onClick={() => setViewModal(null)}
-                className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                <X size={18} className="text-gray-500" />
-              </button>
-            </div>
-
-            <div className="flex gap-0.5 mb-4">
-              {[...Array(5)].map((_, i) => (
-                <Star
-                  key={i}
-                  size={16}
-                  className={i < viewModal.rating ? 'fill-[#ddaa2c] text-[#ddaa2c]' : 'text-gray-300'}
-                />
-              ))}
-            </div>
-
-            <p className="text-gray-700 leading-relaxed mb-4">{viewModal.message}</p>
-
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              {statusBadge(viewModal.status)}
-              <div className="flex gap-2 flex-wrap">
-                <button
-                  onClick={() => { handleApprove(viewModal._id); setViewModal(null); }}
-                  disabled={actionLoading === viewModal._id}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm font-medium disabled:opacity-50"
-                >
-                  <Check size={15} /> Approve
-                </button>
-                <button
-                  onClick={() => { handleReject(viewModal._id); setViewModal(null); }}
-                  disabled={actionLoading === viewModal._id}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm font-medium disabled:opacity-50"
-                >
-                  <X size={15} /> Reject
-                </button>
-                <button
-                  onClick={() => { handleDelete(viewModal._id); setViewModal(null); }}
-                  disabled={actionLoading === viewModal._id}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors text-sm font-medium disabled:opacity-50"
-                >
-                  <Trash2 size={15} /> Delete
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
       )}
     </div>

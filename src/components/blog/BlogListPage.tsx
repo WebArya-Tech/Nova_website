@@ -1,8 +1,8 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { blogApi, type Blog, type ArchiveYear } from '../../api/blogApi';
 import { Spinner, TagBadge, Pagination } from '../ui';
-import { Clock, Heart, MessageCircle, Eye, Search, BookOpen, SlidersHorizontal, Calendar } from 'lucide-react';
+import { Clock, Heart, MessageCircle, Eye, Search, BookOpen, SlidersHorizontal, Calendar, ArrowLeft } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface SortOption {
@@ -33,6 +33,7 @@ interface PaginationState {
 }
 
 export const BlogListPage: React.FC = () => {
+    const navigate = useNavigate();
     const [blogs, setBlogs] = useState<Blog[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [search, setSearch] = useState<string>('');
@@ -90,6 +91,9 @@ export const BlogListPage: React.FC = () => {
             {/* Page Header */}
             <div className="bg-gradient-to-br from-primary to-primary-light text-white">
                 <div className="max-w-6xl mx-auto px-6 py-14">
+                    <button onClick={() => navigate(-1)} className="flex items-center gap-1.5 text-sm text-blue-200 hover:text-white mb-3 transition-colors">
+                        <ArrowLeft className="w-4 h-4" /> Back
+                    </button>
                     <h1 className="text-3xl font-bold mb-2">All Blogs</h1>
                     <p className="text-blue-100 text-sm">Browse all articles, tips and insights from Nova Tuitions</p>
                 </div>

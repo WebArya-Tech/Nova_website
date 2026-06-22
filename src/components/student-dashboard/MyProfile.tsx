@@ -23,7 +23,7 @@ export default function MyProfile({ studentData }) {
   const [formData, setFormData] = useState({
     name: studentData.name,
     email: studentData.email,
-    phone: studentData.phone || '+91 73489 56284',
+    phone: studentData.phone || '+91-974 071 2301',
     address: 'Bengaluru, Karnataka, India',
     city: 'Bengaluru',
     state: 'Karnataka',

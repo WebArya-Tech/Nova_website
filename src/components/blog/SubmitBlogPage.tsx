@@ -1,39 +1,75 @@
-﻿import React, { useState, useEffect, useCallback, useRef } from 'react';
+﻿import { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { blogApi } from '../../api/blogApi';
+import { Card, Input, TextArea, Button } from '../ui';
 import { ContentEditor } from '../editor/ContentEditor';
-import { PenTool, Mail, CheckCircle, ArrowRight, Save, RotateCcw, Upload, X, Image as ImageIcon } from 'lucide-react';
+import { PenTool, Mail, CheckCircle, ArrowRight, ArrowLeft, Clock, Save, Trash2, RotateCcw, Upload, X, Image as ImageIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
-
+import React from 'react';
 const DRAFT_KEY = 'blogpost_draft';
+const OTP_VALIDITY_SECONDS = 5 * 60;
 
-interface BlogFormData {
-    authorName: string;
-    authorEmail: string;
-    authorMobile: string;
-    title: string;
-    excerpt: string;
-    content: string;
-    tags: string;
-    featuredImageUrl: string;
-}
-
-const emptyForm: BlogFormData = {
+const emptyForm = {
     authorName: '', authorEmail: '', authorMobile: '',
     title: '', excerpt: '', content: '', tags: '', featuredImageUrl: '',
 };
 
-export const SubmitBlogPage: React.FC = () => {
-    const [step, setStep] = useState<number>(1);
-    const [loading, setLoading] = useState<boolean>(false);
-    const [formData, setFormData] = useState<BlogFormData>(emptyForm);
-    const [otp, setOtp] = useState<string>('');
-    const [hasDraft, setHasDraft] = useState<boolean>(false);
-    const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
-    const [imagePreview, setImagePreview] = useState<string | null>(null);
-    const [imageLoading, setImageLoading] = useState<boolean>(false);
-    const [isDragOver, setIsDragOver] = useState<boolean>(false);
-    const autoSaveTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-    const fileInputRef = useRef<HTMLInputElement | null>(null);
+export const SubmitBlogPage = () => {
+    const navigate = useNavigate();
+    const [step, setStep] = useState(1);
+    const [loading, setLoading] = useState(false);
+    const [formData, setFormData] = useState(emptyForm);
+    const [otp, setOtp] = useState('');
+    const [otpExpiresAt, setOtpExpiresAt] = useState(null);
+    const [otpSecondsRemaining, setOtpSecondsRemaining] = useState(0);
+    const [hasDraft, setHasDraft] = useState(false);
+    const [draftSavedAt, setDraftSavedAt] = useState(null);
+    const [imagePreview, setImagePreview] = useState(null);
+    const [imageLoading, setImageLoading] = useState(false);
+    const [isDragOver, setIsDragOver] = useState(false);
+    const [errors, setErrors] = useState({});
+    const autoSaveTimer = useRef(null);
+    const fileInputRef = useRef(null);
+
+    // Form Validation Function
+    const validateForm = () => {
+        const newErrors = {};
+
+        // Name validation
+        if (!formData.authorName || formData.authorName.trim().length < 2) {
+            newErrors.authorName = 'Name must be at least 2 characters';
+        }
+
+        // Email validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!formData.authorEmail || !emailRegex.test(formData.authorEmail)) {
+            newErrors.authorEmail = 'Please enter a valid email address';
+        }
+
+        // Mobile validation - only 10 digits
+        const mobileRegex = /^[0-9]{10}$/;
+        if (!formData.authorMobile || !mobileRegex.test(formData.authorMobile)) {
+            newErrors.authorMobile = 'Mobile number must be exactly 10 digits';
+        }
+
+        // Title validation
+        if (!formData.title || formData.title.trim().length < 5) {
+            newErrors.title = 'Blog title must be at least 5 characters';
+        }
+
+        // Excerpt validation
+        if (!formData.excerpt || formData.excerpt.trim().length < 10) {
+            newErrors.excerpt = 'Excerpt must be at least 10 characters';
+        }
+
+        // Content validation
+        if (!formData.content || formData.content.trim().length < 50) {
+            newErrors.content = 'Blog content must be at least 50 characters';
+        }
+
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+    };
 
     
     // Check for saved draft on mount
@@ -71,6 +107,19 @@ export const SubmitBlogPage: React.FC = () => {
         }
     }, [formData.featuredImageUrl]);
 
+    useEffect(() => {
+        if (step !== 2 || !otpExpiresAt) return;
+
+        const updateTimer = () => {
+            const secondsLeft = Math.max(0, Math.ceil((otpExpiresAt - Date.now()) / 1000));
+            setOtpSecondsRemaining(secondsLeft);
+        };
+
+        updateTimer();
+        const timer = setInterval(updateTimer, 1000);
+        return () => clearInterval(timer);
+    }, [step, otpExpiresAt]);
+
     const saveDraft = useCallback((silent = false) => {
         try {
             const draft = { formData, savedAt: new Date().toISOString() };
@@ -107,34 +156,81 @@ export const SubmitBlogPage: React.FC = () => {
         setDraftSavedAt(null);
     };
 
-    const handleStep1 = async (e: React.FormEvent<HTMLFormElement>) => {
-        e.preventDefault(); setLoading(true);
-        try {
-            await blogApi.startSubmission({
-                authorName: formData.authorName, authorEmail: formData.authorEmail, authorMobile: formData.authorMobile,
-                title: formData.title, excerpt: formData.excerpt, contentHtml: formData.content,
-                tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean),
-                featuredImageUrl: formData.featuredImageUrl || null,
-            });
-            toast.success('OTP sent to your email!'); setStep(2);
-        } catch (err: unknown) {
-            const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Submission failed';
-            toast.error(msg);
+    const startOtpTimer = () => {
+        setOtp('');
+        setOtpExpiresAt(Date.now() + OTP_VALIDITY_SECONDS * 1000);
+        setOtpSecondsRemaining(OTP_VALIDITY_SECONDS);
+    };
+
+    const clearOtpState = () => {
+        setOtp('');
+        setOtpExpiresAt(null);
+        setOtpSecondsRemaining(0);
+    };
+
+    const isOtpExpired = () => !otpExpiresAt || Date.now() >= otpExpiresAt;
+
+    const formatCountdown = (totalSeconds) => {
+        const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
+        const seconds = (totalSeconds % 60).toString().padStart(2, '0');
+        return `${minutes}:${seconds}`;
+    };
+
+    const getSubmissionPayload = () => ({
+        authorName: formData.authorName, authorEmail: formData.authorEmail, authorMobile: formData.authorMobile,
+        title: formData.title, excerpt: formData.excerpt, contentHtml: formData.content,
+        tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean),
+        featuredImageUrl: formData.featuredImageUrl || null,
+    });
+
+    const handleStep1 = async (e) => {
+        e.preventDefault();
+        
+        // Validate form before submission
+        if (!validateForm()) {
+            toast.error('Please fix the errors in the form');
+            return;
         }
+
+        setLoading(true);
+        try {
+            await blogApi.startSubmission(getSubmissionPayload());
+            startOtpTimer();
+            toast.success('OTP sent to your email!'); setStep(2);
+        } catch (err) { toast.error(err.response?.data?.message || 'Submission failed'); }
         finally { setLoading(false); }
     };
 
-    const handleStep2 = async (e: React.FormEvent<HTMLFormElement>) => {
-        e.preventDefault(); setLoading(true);
+    const handleStep2 = async (e) => {
+        e.preventDefault();
+        if (isOtpExpired()) {
+            toast.error('OTP expired. Please resend OTP.');
+            setOtpSecondsRemaining(0);
+            return;
+        }
+
+        setLoading(true);
         try {
             await blogApi.verifySubmission({ email: formData.authorEmail, otp });
             toast.success('Email verified!'); setStep(3);
         }
-        catch (err: unknown) {
-            const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Invalid OTP';
-            toast.error(msg);
-        }
+        catch (err) { toast.error(err.response?.data?.message || 'Invalid OTP'); }
         finally { setLoading(false); }
+    };
+
+    const handleResendOtp = async () => {
+        setLoading(true);
+        try {
+            await blogApi.startSubmission(getSubmissionPayload());
+            startOtpTimer();
+            toast.success('New OTP sent to your email!');
+        } catch (err) { toast.error(err.response?.data?.message || 'Could not resend OTP'); }
+        finally { setLoading(false); }
+    };
+
+    const goBackToStep1 = () => {
+        clearOtpState();
+        setStep(1);
     };
 
     const handleStep3 = async () => {
@@ -144,16 +240,20 @@ export const SubmitBlogPage: React.FC = () => {
             clearDraft(); // Clear draft on successful submission
             toast.success('Blog submitted!'); setStep(4);
         }
-        catch (err: unknown) {
-            const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to finalize';
-            toast.error(msg);
-        }
+        catch (err) { toast.error(err.response?.data?.message || 'Failed to finalize'); }
         finally { setLoading(false); }
     };
 
-    const update = (f: keyof BlogFormData) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setFormData({ ...formData, [f]: e.target.value });
+    const update = (f) => (e) => setFormData({ ...formData, [f]: e.target.value });
 
-    const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleMobileInput = (e) => {
+        // Only allow digits, max 10
+        let value = e.target.value.replace(/[^0-9]/g, '').slice(0, 10);
+        setFormData({ ...formData, authorMobile: value });
+        setErrors({...errors, authorMobile: ''});
+    };
+
+    const handleImageUpload = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
         processImageFile(file);
@@ -172,31 +272,65 @@ export const SubmitBlogPage: React.FC = () => {
         // Validate file size (max 5MB)
         const fileSizeMB = file.size / (1024 * 1024);
         if (fileSizeMB > 5) {
-            toast.error(`❌ File size is ${fileSizeMB.toFixed(1)}MB. Max allowed is 5MB`);
+            toast.error(`❌ File size is ${fileSizeMB.toFixed(2)}MB. Maximum allowed is 5MB`);
             return;
         }
 
         setImageLoading(true);
 
-        // Convert to base64/data URL
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const dataUrl = event.target?.result;
-            if (typeof dataUrl === 'string') {
-                setFormData(prev => ({ ...prev, featuredImageUrl: dataUrl }));
-                setImagePreview(dataUrl);
-                toast.success(`✅ Image uploaded! (${fileSizeMB.toFixed(1)}MB)`);
+        // Create image element to validate dimensions
+        const img = new Image();
+        
+        img.onload = () => {
+            const width = img.width;
+            const height = img.height;
+            const minWidth = 640;
+            const minHeight = 400;
+            const maxDimension = 4000;
+
+            // Validate minimum dimensions
+            if (width < minWidth || height < minHeight) {
+                toast.error(`❌ Image dimensions (${width}x${height}px) are too small. Minimum required: ${minWidth}x${minHeight}px`);
+                setImageLoading(false);
+                return;
             }
+
+            // Validate maximum dimensions
+            if (width > maxDimension || height > maxDimension) {
+                toast.error(`❌ Image dimensions (${width}x${height}px) are too large. Maximum allowed: ${maxDimension}x${maxDimension}px`);
+                setImageLoading(false);
+                return;
+            }
+
+            // Convert to base64/data URL
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const dataUrl = event.target?.result;
+                if (typeof dataUrl === 'string') {
+                    setFormData(prev => ({ ...prev, featuredImageUrl: dataUrl }));
+                    setImagePreview(dataUrl);
+                    toast.success(`✅ Image uploaded! (${fileSizeMB.toFixed(2)}MB | ${width}x${height}px)`);
+                }
+                setImageLoading(false);
+            };
+            reader.onerror = () => {
+                toast.error('❌ Failed to read image file');
+                setImageLoading(false);
+            };
+            reader.readAsDataURL(file);
+        };
+
+        img.onerror = () => {
+            toast.error('❌ Failed to load image. Please check if the file is a valid image');
             setImageLoading(false);
         };
-        reader.onerror = () => {
-            toast.error('❌ Failed to read image file');
-            setImageLoading(false);
-        };
-        reader.readAsDataURL(file);
+
+        // Create temporary URL to validate the image
+        const tempUrl = URL.createObjectURL(file);
+        img.src = tempUrl;
     };
 
-    const handleUrlChange = (url: string) => {
+    const handleUrlChange = (url) => {
         setFormData(prev => ({ ...prev, featuredImageUrl: url }));
         if (url && url.trim()) {
             // Validate URL format
@@ -220,19 +354,19 @@ export const SubmitBlogPage: React.FC = () => {
         toast.success('Image removed');
     };
 
-    const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    const handleDragOver = (e) => {
         e.preventDefault();
         e.stopPropagation();
         setIsDragOver(true);
     };
 
-    const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    const handleDragLeave = (e) => {
         e.preventDefault();
         e.stopPropagation();
         setIsDragOver(false);
     };
 
-    const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    const handleDrop = (e) => {
         e.preventDefault();
         e.stopPropagation();
         setIsDragOver(false);
@@ -244,232 +378,301 @@ export const SubmitBlogPage: React.FC = () => {
         }
     };
 
-    const formatTime = (date: Date | null) => {
+    const formatTime = (date) => {
         if (!date) return '';
         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     };
 
-    const inputCls = "w-full px-4 py-3 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300 transition-all placeholder:text-gray-400";
-
     return (
-        <div className="bg-gray-50 min-h-screen">
-            {/* Header */}
-            <div style={{ background: 'linear-gradient(135deg, #133f5c 0%, #195276 50%, #1e6590 100%)' }}>
-                <div className="max-w-4xl mx-auto px-6 py-16">
-                    <div className="flex items-center gap-3 mb-3">
-                        <div className="w-11 h-11 rounded-xl bg-white/15 flex items-center justify-center">
-                            <PenTool className="w-5 h-5 text-white" />
+        <div className="max-w-4xl mx-auto px-6 py-10">
+            <button onClick={() => navigate(-1)} className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary mb-4 transition-colors">
+                <ArrowLeft className="w-4 h-4" /> Back
+            </button>
+            <h1 className="text-3xl font-bold text-text-primary mb-2">Submit Your Blog</h1>
+            <p className="text-text-secondary mb-8">Share your knowledge. 3 simple steps.</p>
+
+            {/* Draft restore banner */}
+            {hasDraft && step === 1 && (
+                <div className="mb-6 p-4 bg-bg-secondary border border-border-primary rounded-xl flex flex-wrap items-center justify-between gap-3 animate-fade-in">
+                    <div className="flex items-center gap-2">
+                        <RotateCcw className="w-5 h-5 text-text-secondary" />
+                        <div>
+                            <p className="text-sm font-medium text-text-primary">You have a saved draft</p>
+                            {draftSavedAt && <p className="text-xs text-text-tertiary">Last saved at {formatTime(draftSavedAt)}</p>}
                         </div>
-                        <h1 className="text-2xl sm:text-3xl font-bold text-white">Submit Your Blog</h1>
                     </div>
-                    <p className="text-white text-sm ml-[56px]">Share your knowledge with Nova Tuitions students &amp; parents</p>
+                    <div className="flex gap-2">
+                        <button onClick={restoreDraft} className="btn-primary text-xs py-1.5 px-4">Restore Draft</button>
+                        <button onClick={discardDraft} className="btn-secondary text-xs py-1.5 px-4">Discard</button>
+                    </div>
                 </div>
+            )}
+
+            {/* Steps */}
+            <div className="flex items-center justify-center gap-3 mb-10">
+                {[1, 2, 3].map((s) => (
+                    <div key={s} className="flex items-center gap-2">
+                        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold transition-all ${step >= s ? 'bg-text-primary text-bg-primary' : 'bg-bg-tertiary text-text-tertiary'
+                            }`}>{step > s ? '✓' : s}</div>
+                        {s < 3 && <div className={`w-12 h-0.5 ${step > s ? 'bg-text-primary' : 'bg-border-primary'}`} />}
+                    </div>
+                ))}
             </div>
 
-            <div className="max-w-4xl mx-auto px-6 py-10 my-10 md:py-12 mb-16">
-                {/* Draft restore banner */}
-                {hasDraft && step === 1 && (
-                    <div className="mt-6 mb-8 px-5 py-4 bg-amber-50 border border-amber-200 rounded-2xl flex flex-wrap items-center justify-between gap-4">
-                        <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
-                                <RotateCcw className="w-4.5 h-4.5 text-amber-600" />
-                            </div>
-                            <div>
-                                <p className="text-base font-bold text-gray-800">Unsaved draft found</p>
-                                {draftSavedAt && <p className="text-sm text-gray-400 mt-0.5">Last saved at {formatTime(draftSavedAt)}</p>}
-                            </div>
+            {step === 1 && (
+                <Card>
+                    <div className="flex items-center justify-between mb-5">
+                        <div className="flex items-center gap-2">
+                            <PenTool className="w-5 h-5 text-text-secondary" />
+                            <h2 className="text-xl font-bold text-text-primary">Write Your Blog</h2>
                         </div>
-                        <div className="flex gap-3">
-                            <button onClick={restoreDraft} className="text-white text-sm font-bold py-3 px-6 rounded-xl transition-all duration-200 hover:-translate-y-0.5 shadow-sm hover:shadow-md" style={{ background: '#195276' }}>
-                                Restore
-                            </button>
-                            <button onClick={discardDraft} className="bg-white border border-gray-200 text-gray-600 text-sm font-bold py-3 px-6 rounded-xl hover:bg-gray-50 transition-all duration-200">
-                                Discard
+                        <div className="flex items-center gap-2">
+                            {draftSavedAt && (
+                                <span className="text-xs text-text-tertiary hidden sm:inline">
+                                    Saved {formatTime(draftSavedAt)}
+                                </span>
+                            )}
+                            <button type="button" onClick={() => saveDraft(false)}
+                                className="flex items-center gap-1.5 text-xs font-medium text-text-secondary hover:text-text-primary bg-bg-tertiary hover:bg-bg-hover px-3 py-1.5 rounded-lg transition-colors"
+                                title="Save as draft (auto-saves every 30s)">
+                                <Save size={14} /> Save Draft
                             </button>
                         </div>
                     </div>
-                )}
-
-                {/* Step Indicator */}
-                <div className="flex items-center justify-center gap-4 py-8 mb-10">
-                    {[
-                        { n: 1, label: 'Write' },
-                        { n: 2, label: 'Verify' },
-                        { n: 3, label: 'Submit' },
-                    ].map(({ n, label }, i) => (
-                        <React.Fragment key={n}>
-                            <div className="flex flex-col items-center gap-1.5">
-                                <div className={`w-12 h-12 rounded-full flex items-center justify-center text-base font-bold transition-all duration-300 ${
-                                    step > n ? 'bg-emerald-500 text-white shadow-sm' :
-                                    step === n ? 'text-white shadow-lg' :
-                                    'bg-white border-2 border-gray-200 text-gray-400'
-                                }`} style={step === n ? { background: '#195276' } : {}}>
-                                    {step > n ? '✓' : n}
-                                </div>
-                                <span className={`text-sm font-semibold ${step === n ? 'text-gray-800' : 'text-gray-400'}`}>{label}</span>
+                    <form onSubmit={handleStep1} className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <Input label="Your Name *" placeholder="John Doe" value={formData.authorName} onChange={(e) => { update('authorName')(e); setErrors({...errors, authorName: ''}) }} required />
+                                {errors.authorName && <p className="text-red-500 text-xs mt-1">❌ {errors.authorName}</p>}
                             </div>
-                            {i < 2 && <div className={`w-16 sm:w-20 h-0.5 mb-6 rounded-full ${step > n ? 'bg-emerald-400' : 'bg-gray-200'} transition-colors duration-300`} />}
-                        </React.Fragment>
-                    ))}
-                </div>
-
-                {/* Step 1: Write */}
-                {step === 1 && (
-                    <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-6 pt-10 md:p-8 md:pt-10">
-                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-8">
-                            <h2 className="text-xl sm:text-2xl font-extrabold text-gray-800">Write Your Blog</h2>
-                            <button type="button" onClick={() => saveDraft(false)}
-                                className="flex items-center gap-2.5 text-sm font-bold px-5 py-3 rounded-xl border border-gray-200 hover:bg-gray-50 transition-all duration-200" style={{ color: '#195276' }}>
-                                <Save size={14} /> Save Draft
-                                {draftSavedAt && <span className="text-gray-400 font-normal hidden sm:inline">· {formatTime(draftSavedAt)}</span>}
-                            </button>
+                            <div>
+                                <Input label="Email *" type="email" placeholder="john@example.com" value={formData.authorEmail} onChange={(e) => { update('authorEmail')(e); setErrors({...errors, authorEmail: ''}) }} required />
+                                {errors.authorEmail && <p className="text-red-500 text-xs mt-1">❌ {errors.authorEmail}</p>}
+                            </div>
                         </div>
-                        <form onSubmit={handleStep1} className="space-y-6">
-                            {/* Author info */}
-                            <div className="grid grid-cols-1 md:grid-cols-6 gap-5">
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Full Name *</label>
-                                    <input placeholder="John Doe" value={formData.authorName} onChange={update('authorName')} required className={inputCls} />
+                        <div>
+                            <Input label="Mobile * (10 digits)" placeholder="9876543210" value={formData.authorMobile} onChange={handleMobileInput} maxLength="10" inputMode="numeric" required />
+                            {errors.authorMobile && <p className="text-red-500 text-xs mt-1">❌ {errors.authorMobile}</p>}
+                            <p className="text-text-tertiary text-xs mt-1">Enter 10 digit mobile number</p>
+                        </div>
+                        <div>
+                            <Input label="Blog Title *" placeholder="An amazing title..." value={formData.title} onChange={(e) => { update('title')(e); setErrors({...errors, title: ''}) }} required />
+                            {errors.title && <p className="text-red-500 text-xs mt-1">❌ {errors.title}</p>}
+                        </div>
+                        <div>
+                            <TextArea label="Excerpt *" placeholder="Brief summary (2-3 sentences)" rows={2} value={formData.excerpt} onChange={(e) => { update('excerpt')(e); setErrors({...errors, excerpt: ''}) }} required />
+                            {errors.excerpt && <p className="text-red-500 text-xs mt-1">❌ {errors.excerpt}</p>}
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <label className="block text-sm font-medium text-text-secondary">Content *</label>
+                            <ContentEditor
+                                initialContent={formData.content}
+                                onChange={(html) => { setFormData(prev => ({ ...prev, content: html })); setErrors({...errors, content: ''}) }}
+                            />
+                            {errors.content && <p className="text-red-500 text-xs mt-1">❌ {errors.content}</p>}
+                        </div>
+
+                        <Input label="Tags (comma separated)" placeholder="spring-boot, java, tutorial" value={formData.tags} onChange={update('tags')} />
+                        
+                        {/* Featured Image Upload Section */}
+                        <div className="space-y-3">
+                            <label className="block text-sm font-medium text-text-secondary">Featured Image (optional)</label>
+                            
+                            {/* Image Preview */}
+                            {imagePreview && (
+                                <div className="relative w-full rounded-lg overflow-hidden bg-bg-tertiary border-2 border-bg-hover">
+                                    <img 
+                                        src={imagePreview} 
+                                        alt="Preview" 
+                                        className="w-full h-48 object-cover"
+                                        onError={(e) => {
+                                            e.target.style.display = 'none';
+                                            toast.error('❌ Invalid image URL');
+                                        }}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={clearImage}
+                                        className="absolute top-2 right-2 p-2 bg-red-500 hover:bg-red-600 text-white rounded-full transition-colors shadow-lg"
+                                        title="Remove image"
+                                    >
+                                        <X size={18} />
+                                    </button>
+                                    <div className="absolute bottom-2 left-2 bg-black bg-opacity-60 text-white px-3 py-1 rounded text-xs">
+                                        ✅ Image Ready
+                                    </div>
                                 </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Email *</label>
-                                    <input type="email" placeholder="john@example.com" value={formData.authorEmail} onChange={update('authorEmail')} required className={inputCls} />
+                            )}
+                            
+                            {/* Upload Area - Drag & Drop */}
+                            <div
+                                onDragOver={handleDragOver}
+                                onDragLeave={handleDragLeave}
+                                onDrop={handleDrop}
+                                className={`border-2 border-dashed rounded-lg p-6 text-center transition-all cursor-pointer ${
+                                    isDragOver 
+                                        ? 'border-text-secondary bg-bg-secondary' 
+                                        : 'border-border-primary bg-bg-primary hover:border-text-secondary'
+                                }`}
+                            >
+                                <div className="flex flex-col items-center gap-2">
+                                    <ImageIcon size={32} className="text-text-tertiary" />
+                                    <div>
+                                        <p className="text-sm font-medium text-text-primary">
+                                            Drag & Drop Image Here
+                                        </p>
+                                        <p className="text-xs text-text-tertiary mt-1">
+                                            or click below to choose
+                                        </p>
+                                    </div>
                                 </div>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Mobile *</label>
-                                <input placeholder="+91 98765 43210" value={formData.authorMobile} onChange={update('authorMobile')} required className={inputCls} />
                             </div>
 
-                            <hr className="border-gray-100" />
+                            {/* Upload Options */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {/* File Upload Button */}
+                                <button
+                                    type="button"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    disabled={imageLoading}
+                                    className="flex items-center justify-center gap-2 px-4 py-3 bg-text-secondary hover:bg-opacity-90 text-bg-primary border border-text-secondary rounded-lg transition-all font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {imageLoading ? (
+                                        <>
+                                            <div className="w-4 h-4 border-2 border-bg-primary border-t-transparent rounded-full animate-spin"></div>
+                                            Processing...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Upload size={16} />
+                                            Choose from Device
+                                        </>
+                                    )}
+                                </button>
+                                
+                                {/* Hidden File Input */}
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={handleImageUpload}
+                                    className="hidden"
+                                    aria-label="Upload featured image"
+                                    disabled={imageLoading}
+                                />
+                                
+                                {/* Requirements Info */}
+                                <div className="px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg flex flex-col justify-center text-blue-700 font-medium text-xs">
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="font-bold">Requirements:</span>
+                                    </div>
+                                    <div className="text-xs mt-1.5 space-y-1">
+                                        <p>✓ Min: 640×400px | Max: 4000×4000px</p>
+                                        <p>✓ Size: Up to 5MB</p>
+                                        <p>✓ Formats: JPG, PNG, GIF, WebP</p>
+                                    </div>
+                                </div>
+                            </div>
 
-                            {/* Blog content */}
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Blog Title *</label>
-                                <input placeholder="An amazing title..." value={formData.title} onChange={update('title')} required className={inputCls} />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Excerpt *</label>
-                                <textarea placeholder="Brief summary (2-3 sentences)" rows={3} value={formData.excerpt} onChange={update('excerpt')} required className={`${inputCls} resize-none`} />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Content *</label>
-                                <ContentEditor
-                                    initialContent={formData.content}
-                                    onChange={(html) => setFormData(prev => ({ ...prev, content: html }))}
+                            {/* URL Input Option */}
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-medium text-text-secondary">Or paste image URL:</label>
+                                <input
+                                    type="url"
+                                    placeholder="https://example.com/image.jpg"
+                                    value={formData.featuredImageUrl.startsWith('data:') ? '' : formData.featuredImageUrl}
+                                    onChange={(e) => handleUrlChange(e.target.value)}
+                                    disabled={imageLoading}
+                                    className="w-full px-4 py-2.5 text-sm border border-border-primary rounded-lg bg-bg-primary text-text-primary placeholder-text-tertiary focus:outline-none focus:ring-2 focus:ring-text-secondary focus:border-transparent transition-all disabled:opacity-50"
                                 />
                             </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Tags (comma separated)</label>
-                                <input placeholder="study-tips, cbse, math" value={formData.tags} onChange={update('tags')} className={inputCls} />
+
+                            <div className="bg-bg-secondary rounded-lg p-3 space-y-1">
+                                <p className="text-xs font-medium text-text-primary">✨ Supported Formats & Tips:</p>
+                                <ul className="text-xs text-text-tertiary space-y-1 list-disc list-inside">
+                                    <li>JPG, PNG, GIF, WebP</li>
+                                    <li>Max size: 5MB</li>
+                                    <li>Recommended: 1200x800px or larger</li>
+                                    <li>Upload or paste URL - both work!</li>
+                                </ul>
                             </div>
-
-                            {/* Featured Image */}
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Featured Image (optional)</label>
-
-                                {imagePreview && (
-                                    <div className="relative w-full rounded-xl overflow-hidden mb-4 border border-gray-200">
-                                        <img src={imagePreview} alt="Preview" className="w-full h-48 object-cover"
-                                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; toast.error('Invalid image URL'); }} />
-                                        <button type="button" onClick={clearImage}
-                                            className="absolute top-3 right-3 p-2 bg-red-500 hover:bg-red-600 text-white rounded-full shadow-lg transition-all duration-200 hover:scale-105">
-                                            <X size={14} />
-                                        </button>
-                                        <span className="absolute bottom-3 left-3 bg-black/60 text-white text-xs font-medium px-3 py-1 rounded-lg">
-                                            ✓ Ready
-                                        </span>
-                                    </div>
-                                )}
-
-                                <div
-                                    onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
-                                    className={`border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer mb-4 ${
-                                        isDragOver ? 'border-blue-400 bg-blue-50/50' : 'border-gray-200 hover:border-blue-300 bg-gray-50'
-                                    }`}
-                                >
-                                    <ImageIcon className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-                                    <p className="text-sm font-semibold text-gray-600">Drag &amp; drop image here</p>
-                                    <p className="text-xs text-gray-400 mt-1.5">JPG, PNG, WebP · Max 5MB</p>
-                                </div>
-
-                                <div className="flex gap-3">
-                                    <button type="button" onClick={() => fileInputRef.current?.click()} disabled={imageLoading}
-                                        className="flex items-center gap-2 text-sm font-bold px-5 py-3 rounded-xl transition-all duration-200 disabled:opacity-50 hover:-translate-y-0.5" style={{ background: 'rgba(25,82,118,0.1)', color: '#195276' }}>
-                                        {imageLoading ? <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <Upload size={16} />}
-                                        {imageLoading ? 'Processing...' : 'Upload from Device'}
-                                    </button>
-                                    <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" disabled={imageLoading} />
-                                </div>
-
-                                <div className="mt-4">
-                                    <label className="block text-xs text-gray-400 font-medium mb-4">Or paste image URL:</label>
-                                    <input type="url" placeholder="https://example.com/image.jpg"
-                                        value={formData.featuredImageUrl.startsWith('data:') ? '' : formData.featuredImageUrl}
-                                        onChange={(e) => handleUrlChange(e.target.value)}
-                                        disabled={imageLoading}
-                                        className={`${inputCls} disabled:opacity-50`} />
-                                </div>
-                            </div>
-
-                            <button type="submit" disabled={loading}
-                                className="w-full flex items-center justify-center gap-3 text-white font-bold py-4 rounded-xl transition-all duration-200 disabled:opacity-60 text-sm mt-6 hover:-translate-y-0.5 shadow-sm hover:shadow-md" style={{ background: '#195276' }}>
-                                {loading ? 'Sending OTP...' : <><span>Next: Verify Email</span><ArrowRight className="w-4 h-4" /></>}
-                            </button>
-                        </form>
-                    </div>
-                )}
-
-                {/* Step 2: Verify OTP */}
-                {step === 2 && (
-                    <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-8 sm:p-10 max-w-md mx-auto text-center">
-                        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-5" style={{ background: 'rgba(25,82,118,0.1)' }}>
-                            <Mail className="w-8 h-8" style={{ color: '#195276' }} />
                         </div>
-                        <h2 className="text-xl font-extrabold text-gray-800 mb-2">Check your inbox</h2>
-                        <p className="text-gray-500 text-sm mb-8">OTP sent to <strong className="text-gray-700">{formData.authorEmail}</strong></p>
-                        <form onSubmit={handleStep2} className="space-y-5">
-                            <input placeholder="Enter 6-digit OTP" value={otp} onChange={(e) => setOtp(e.target.value)}
-                                maxLength={6} required
-                                className="w-full text-center text-2xl font-bold tracking-widest px-4 py-3.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300 transition-all" />
-                            <button type="submit" disabled={loading}
-                                className="w-full text-white font-bold py-3.5 rounded-xl transition-all duration-200 disabled:opacity-60 text-sm hover:-translate-y-0.5 shadow-sm hover:shadow-md" style={{ background: '#195276' }}>
-                                {loading ? 'Verifying...' : 'Verify OTP'}
-                            </button>
-                        </form>
-                    </div>
-                )}
+                        
+                        <Button type="submit" disabled={loading} className="w-full">
+                            {loading ? 'Sending OTP...' : 'Submit & Verify Email'} <ArrowRight className="w-4 h-4 inline ml-1" />
+                        </Button>
+                    </form>
+                </Card>
+            )}
 
-                {/* Step 3: Confirm */}
-                {step === 3 && (
-                    <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-8 sm:p-10 max-w-md mx-auto text-center">
-                        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-50 mb-5">
-                            <CheckCircle className="w-9 h-9 text-emerald-500" />
+            {step === 2 && (
+                <Card className="text-center">
+                    <Mail className="w-12 h-12 mx-auto text-text-tertiary mb-3" />
+                    <h2 className="text-xl font-bold text-text-primary mb-1">Verify Your Email</h2>
+                    <p className="text-text-secondary mb-4 text-sm">OTP sent to <strong>{formData.authorEmail}</strong></p>
+                    <div className={`max-w-xs mx-auto mb-5 rounded-lg border px-4 py-3 text-sm ${
+                        otpSecondsRemaining > 0
+                            ? 'border-blue-100 bg-blue-50 text-blue-900'
+                            : 'border-red-100 bg-red-50 text-red-700'
+                    }`}>
+                        <div className="flex items-center justify-center gap-2 font-semibold">
+                            <Clock className="w-4 h-4" />
+                            {otpSecondsRemaining > 0 ? formatCountdown(otpSecondsRemaining) : 'OTP expired'}
                         </div>
-                        <h2 className="text-xl font-extrabold text-gray-800 mb-2">Email Verified!</h2>
-                        <p className="text-gray-500 text-sm mb-8">Ready to submit your blog for admin review.</p>
-                        <button onClick={handleStep3} disabled={loading}
-                            className="text-white font-bold px-8 py-3.5 rounded-xl transition-all duration-200 disabled:opacity-60 text-sm hover:-translate-y-0.5 shadow-sm hover:shadow-md" style={{ background: '#195276' }}>
-                            {loading ? 'Submitting...' : 'Finalize Submission'}
-                        </button>
-                    </div>
-                )}
-
-                {/* Step 4: Done */}
-                {step === 4 && (
-                    <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-8 sm:p-10 max-w-md mx-auto text-center">
-                        <div className="text-5xl mb-5">🎉</div>
-                        <h2 className="text-2xl font-extrabold text-gray-800 mb-3">Blog Submitted!</h2>
-                        <p className="text-gray-500 text-sm mb-8">
-                            Your blog is under review. You'll receive an email once it's approved and published.
+                        <p className="mt-1 text-xs">
+                            {otpSecondsRemaining > 0
+                                ? 'This OTP is valid for 5 minutes.'
+                                : 'Please request a new OTP to continue.'}
                         </p>
-                        <button onClick={() => { setStep(1); setFormData(emptyForm); }}
-                            className="border-2 font-bold px-8 py-3.5 rounded-xl transition-all duration-200 text-sm hover:-translate-y-0.5 hover:shadow-md" style={{ borderColor: '#195276', color: '#195276' }}>
-                            Submit Another Blog
-                        </button>
                     </div>
-                )}
-            </div>
+                    <form onSubmit={handleStep2} className="max-w-xs mx-auto space-y-4">
+                        <Input placeholder="Enter 6-digit OTP" value={otp} onChange={(e) => setOtp(e.target.value)}
+                            className="text-center text-xl tracking-widest" maxLength={6} required disabled={otpSecondsRemaining <= 0} />
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <Button type="button" variant="outline" onClick={goBackToStep1} disabled={loading} className="w-full sm:w-auto flex items-center justify-center gap-2">
+                                <ArrowLeft className="w-4 h-4" /> Back
+                            </Button>
+                            <Button type="submit" disabled={loading || otpSecondsRemaining <= 0 || otp.length !== 6} className="w-full">
+                                {loading ? 'Verifying...' : 'Verify OTP'}
+                            </Button>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handleResendOtp}
+                            disabled={loading || otpSecondsRemaining > 0}
+                            className="text-sm font-semibold text-blue-700 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
+                        >
+                            {otpSecondsRemaining > 0 ? `Resend OTP after ${formatCountdown(otpSecondsRemaining)}` : 'Resend OTP'}
+                        </button>
+                    </form>
+                </Card>
+            )}
+
+            {step === 3 && (
+                <Card className="text-center">
+                    <CheckCircle className="w-12 h-12 mx-auto text-emerald-500 mb-3" />
+                    <h2 className="text-xl font-bold text-text-primary mb-1">Email Verified!</h2>
+                    <p className="text-text-secondary mb-6 text-sm">Click below to submit for admin review</p>
+                    <div className="flex flex-col sm:flex-row justify-center gap-3">
+                        <Button type="button" variant="outline" onClick={() => setStep(2)} disabled={loading} className="flex items-center justify-center gap-2">
+                            <ArrowLeft className="w-4 h-4" /> Back
+                        </Button>
+                        <Button onClick={handleStep3} disabled={loading}>{loading ? 'Submitting...' : 'Finalize Submission'}</Button>
+                    </div>
+                </Card>
+            )}
+
+            {step === 4 && (
+                <Card className="text-center">
+                    <div className="text-5xl mb-3">🎉</div>
+                    <h2 className="text-2xl font-bold text-text-primary mb-1">Blog Submitted!</h2>
+                    <p className="text-text-secondary text-sm mb-6">Pending admin review. You'll get an email once approved.</p>
+                    <Button variant="secondary" onClick={() => { setStep(1); setFormData(emptyForm); }}>
+                        Submit Another
+                    </Button>
+                </Card>
+            )}
         </div>
     );
 };

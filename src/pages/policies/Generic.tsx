@@ -1,6 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { FileText } from "lucide-react";
 import { useParams } from "react-router-dom";
+import { getWhatsAppLink, whatsappMessages } from "@/utils/whatsapp";
 
 const GenericPolicy = () => {
   const { policy } = useParams();
@@ -44,8 +45,8 @@ const GenericPolicy = () => {
               </p>
               <ul className="list-disc pl-6 space-y-2 text-muted-foreground">
                 <li>Email: <a href="mailto:novatuitions@ixpoe.com" className="text-primary hover:underline">novatuitions@ixpoe.com</a></li>
-                <li>Phone: <a href="tel:+918197466607" className="text-primary hover:underline">+91 81974 66607</a> / <a href="tel:+917795010900" className="text-primary hover:underline">+91 7795 010 900</a></li>
-                <li>WhatsApp: <a href="https://wa.me/918197466607" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">+91 81974 66607</a></li>
+                <li>Phone: <a href="tel:+919734895684" className="text-primary hover:underline">+91-734 895 6284</a></li>
+                <li>WhatsApp: <a href={getWhatsAppLink(whatsappMessages.GENERAL)} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">+91-974 071 2301</a></li>
               </ul>
 
               <div className="mt-8 p-6 bg-secondary/30 rounded-lg">

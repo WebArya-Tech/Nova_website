@@ -21,7 +21,6 @@ export default function StudentSidebar({ currentView, setCurrentView, sidebarOpe
     { id: 'announcements', label: 'Announcements' },
     { id: 'notifications', label: 'Notifications' },
     { id: 'feePayment', label: 'Fee Payment' },
-    { id: 'feedback', label: 'Feedback & Reviews' },
     { id: 'support', label: 'Support & Help' },
   ]
 

@@ -1,435 +1,623 @@
-import React, { useState, useRef, useCallback, useEffect, type FC, type MouseEvent, type SyntheticEvent } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import {
     Bold, Italic, Underline, Strikethrough, Heading1, Heading2, Heading3,
     List, ListOrdered, Code, Quote, Link as LinkIcon, Image as ImageIcon,
-    Minus, Eye, Edit3, AlignLeft, AlignCenter, AlignRight, Undo, Redo,
-    Type, X,
-    type LucideIcon
+    Minus, Eye, Edit3, AlignLeft, AlignCenter, AlignRight, ImageOff, Undo, Redo,
+    Type
 } from 'lucide-react';
-
-/* ─── Types ─── */
-interface ToolbarItem {
-    key: string;
-    icon?: LucideIcon;
-    label?: string;
-    command?: string;
-    value?: string;
-    separator?: boolean;
-    special?: 'image' | 'link' | 'code';
-}
-
-interface ContentEditorProps {
-    initialContent?: string;
-    onChange: (html: string) => void;
-}
-
+import React from 'react';
 /* ─── Toolbar config ─── */
-const TOOLBAR: ToolbarItem[] = [
-    { key: 'undo', icon: Undo, label: 'Undo', command: 'undo' },
-    { key: 'redo', icon: Redo, label: 'Redo', command: 'redo' },
+const TOOLBAR = [
+    { key: 'undo', icon: Undo, label: 'Undo (Ctrl+Z)', command: 'undo' },
+    { key: 'redo', icon: Redo, label: 'Redo (Ctrl+Y)', command: 'redo' },
     { key: 'sep0', separator: true },
-    { key: 'bold', icon: Bold, label: 'Bold', command: 'bold' },
-    { key: 'italic', icon: Italic, label: 'Italic', command: 'italic' },
-    { key: 'underline', icon: Underline, label: 'Underline', command: 'underline' },
+    { key: 'bold', icon: Bold, label: 'Bold (Ctrl+B)', command: 'bold' },
+    { key: 'italic', icon: Italic, label: 'Italic (Ctrl+I)', command: 'italic' },
+    { key: 'underline', icon: Underline, label: 'Underline (Ctrl+U)', command: 'underline' },
     { key: 'strikethrough', icon: Strikethrough, label: 'Strikethrough', command: 'strikeThrough' },
     { key: 'sep1', separator: true },
-    { key: 'h1', icon: Heading1, label: 'Heading 1', command: 'formatBlock', value: '<H1>' },
-    { key: 'h2', icon: Heading2, label: 'Heading 2', command: 'formatBlock', value: '<H2>' },
-    { key: 'h3', icon: Heading3, label: 'Heading 3', command: 'formatBlock', value: '<H3>' },
-    { key: 'paragraph', icon: Type, label: 'Normal', command: 'formatBlock', value: '<P>' },
+    { key: 'h1', icon: Heading1, label: 'Heading 1', command: 'formatBlock', value: '<h1>' },
+    { key: 'h2', icon: Heading2, label: 'Heading 2', command: 'formatBlock', value: '<h2>' },
+    { key: 'h3', icon: Heading3, label: 'Heading 3', command: 'formatBlock', value: '<h3>' },
+    { key: 'paragraph', icon: Type, label: 'Normal Text', command: 'formatBlock', value: '<p>' },
     { key: 'sep2', separator: true },
-    { key: 'ul', icon: List, label: 'List', command: 'insertUnorderedList' },
-    { key: 'ol', icon: ListOrdered, label: 'Ordered', command: 'insertOrderedList' },
-    { key: 'blockquote', icon: Quote, label: 'Quote', command: 'formatBlock', value: '<BLOCKQUOTE>' },
+    { key: 'ul', icon: List, label: 'Bullet List', command: 'insertUnorderedList' },
+    { key: 'ol', icon: ListOrdered, label: 'Numbered List', command: 'insertOrderedList' },
+    { key: 'blockquote', icon: Quote, label: 'Blockquote', command: 'formatBlock', value: '<blockquote>' },
     { key: 'sep3', separator: true },
-    { key: 'code', icon: Code, label: 'Code', special: 'code' },
-    { key: 'hr', icon: Minus, label: 'HR', command: 'insertHorizontalRule' },
+    { key: 'code', icon: Code, label: 'Code Block', special: 'code' },
+    { key: 'hr', icon: Minus, label: 'Horizontal Rule', command: 'insertHorizontalRule' },
     { key: 'sep4', separator: true },
-    { key: 'alignLeft', icon: AlignLeft, label: 'Left', command: 'justifyLeft' },
-    { key: 'alignCenter', icon: AlignCenter, label: 'Center', command: 'justifyCenter' },
-    { key: 'alignRight', icon: AlignRight, label: 'Right', command: 'justifyRight' },
+    { key: 'alignLeft', icon: AlignLeft, label: 'Align Left', command: 'justifyLeft' },
+    { key: 'alignCenter', icon: AlignCenter, label: 'Align Center', command: 'justifyCenter' },
+    { key: 'alignRight', icon: AlignRight, label: 'Align Right', command: 'justifyRight' },
     { key: 'sep5', separator: true },
-    { key: 'link', icon: LinkIcon, label: 'Link', special: 'link' },
-    { key: 'image', icon: ImageIcon, label: 'Image', special: 'image' },
+    { key: 'link', icon: LinkIcon, label: 'Insert Link', special: 'link' },
+    { key: 'image', icon: ImageIcon, label: 'Insert Image', special: 'image' },
 ];
 
-const dialogInputCls = "w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300 transition-all";
+export const ContentEditor = ({ initialContent, onChange }) => {
+    const editorRef = useRef(null);
+    const fileInputRef = useRef(null);
+    const [mode, setMode] = useState('edit');
+    const [htmlContent, setHtmlContent] = useState(initialContent || '');
+    const [showImageDialog, setShowImageDialog] = useState(false);
+    const [showLinkDialog, setShowLinkDialog] = useState(false);
+    const [imageUrl, setImageUrl] = useState('');
+    const [imageAlt, setImageAlt] = useState('');
+    const [linkUrl, setLinkUrl] = useState('');
+    const [linkText, setLinkText] = useState('');
+    const [savedSelection, setSavedSelection] = useState(null);
+    const [wordCount, setWordCount] = useState(0);
+    const [imageLoading, setImageLoading] = useState(false);
 
-/**
- * Wrapper around document.execCommand to suppress TS deprecation warning.
- * execCommand is deprecated but remains the only viable approach for
- * contentEditable-based editors without pulling in a heavy library.
- */
-const exec = (command: string, value: string = ''): boolean => {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    return document.execCommand(command, false, value);
-};
-
-export const ContentEditor: FC<ContentEditorProps> = ({ initialContent = '', onChange }) => {
-
-    const editorRef = useRef<HTMLDivElement>(null);
-    const savedSelectionRef = useRef<Range | null>(null);
-    const isInitializedRef = useRef<boolean>(false);
-
-    const [mode, setMode] = useState<'edit' | 'preview'>('edit');
-    const [htmlContent, setHtmlContent] = useState<string>(initialContent);
-    const [showImageDialog, setShowImageDialog] = useState<boolean>(false);
-    const [showLinkDialog, setShowLinkDialog] = useState<boolean>(false);
-
-    const [imageUrl, setImageUrl] = useState<string>('');
-    const [imageAlt, setImageAlt] = useState<string>('');
-
-    const [linkUrl, setLinkUrl] = useState<string>('');
-    const [linkText, setLinkText] = useState<string>('');
-
-    const [wordCount, setWordCount] = useState<number>(0);
-
-    /* ─── Effects ─── */
-
-    // Set initial content only once
+    // Restore content into editor when switching back to edit mode
     useEffect(() => {
-        if (editorRef.current && initialContent && !isInitializedRef.current) {
-            editorRef.current.innerHTML = initialContent;
-            setHtmlContent(initialContent);
-            updateWordCount();
-            isInitializedRef.current = true;
-        }
-    }, [initialContent]);
-
-    // When switching back from preview to edit, restore HTML
-    useEffect(() => {
-        if (mode === 'edit' && editorRef.current && isInitializedRef.current) {
+        if (mode === 'edit' && editorRef.current && htmlContent) {
             editorRef.current.innerHTML = htmlContent;
             updateWordCount();
         }
-        // Only depend on mode — htmlContent is intentionally excluded
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mode]);
 
-    /* ─── Helpers ─── */
-    const saveSelection = (): void => {
-        const sel: Selection | null = window.getSelection();
+    // Set initial content on first mount
+    useEffect(() => {
+        if (editorRef.current && initialContent && !editorRef.current.innerHTML) {
+            editorRef.current.innerHTML = initialContent;
+            setHtmlContent(initialContent);
+            updateWordCount();
+        }
+    }, [initialContent]);
+
+    const saveSelection = () => {
+        const sel = window.getSelection();
         if (sel && sel.rangeCount > 0) {
-            savedSelectionRef.current = sel.getRangeAt(0).cloneRange();
+            setSavedSelection(sel.getRangeAt(0).cloneRange());
         }
     };
 
-    const restoreSelection = (): void => {
-        const range: Range | null = savedSelectionRef.current;
-        if (!range) return;
-        const sel: Selection | null = window.getSelection();
+    const restoreSelection = () => {
+        if (savedSelection && editorRef.current) {
+            const sel = window.getSelection();
+            if (!sel) return;
+            sel.removeAllRanges();
+            sel.addRange(savedSelection.cloneRange());
+        }
+    };
+
+    const focusEditorWithSelection = () => {
+        const editor = editorRef.current;
+        if (!editor) return;
+
+        editor.focus();
+        const sel = window.getSelection();
         if (!sel) return;
-        sel.removeAllRanges();
-        sel.addRange(range);
+
+        // If we have a previously saved selection, restore it
+        if (savedSelection) {
+            try {
+                sel.removeAllRanges();
+                sel.addRange(savedSelection.cloneRange());
+            } catch (e) {
+                console.error('Failed to restore selection:', e);
+            }
+        }
+        // Otherwise, just ensure editor is focused - don't manipulate selection
     };
 
-    const updateWordCount = (): void => {
-        const el: HTMLDivElement | null = editorRef.current;
-        if (!el) return;
-        const text: string = el.innerText.trim();
-        setWordCount(text ? text.split(/\s+/).length : 0);
+    const updateWordCount = () => {
+        if (editorRef.current) {
+            const text = editorRef.current.innerText.trim();
+            setWordCount(text ? text.split(/\s+/).length : 0);
+        }
     };
 
-    const syncContent = useCallback((): void => {
-        const el: HTMLDivElement | null = editorRef.current;
-        if (!el) return;
-        const html: string = el.innerHTML;
-        setHtmlContent(html);
-        onChange(html);
-        updateWordCount();
+    const handleInput = useCallback(() => {
+        if (editorRef.current) {
+            const html = editorRef.current.innerHTML;
+            setHtmlContent(html);
+            onChange(html);
+            updateWordCount();
+        }
     }, [onChange]);
 
-    const execCommand = (command: string, value?: string): void => {
-        editorRef.current?.focus();
-        restoreSelection();
-        exec(command, value);
-        syncContent();
+    // Save content before switching to preview
+    const switchMode = (newMode) => {
+        if (mode === 'edit' && editorRef.current) {
+            const html = editorRef.current.innerHTML;
+            setHtmlContent(html);
+        }
+        setMode(newMode);
     };
 
-    const handleToolbar = (item: ToolbarItem): void => {
+    const execCommand = (command, value = null) => {
+        const editor = editorRef.current;
+        if (!editor) return;
+
+        // Get current selection before any focus changes
+        const sel = window.getSelection();
+        let currentRange = null;
+        if (sel && sel.rangeCount > 0) {
+            currentRange = sel.getRangeAt(0).cloneRange();
+        }
+
+        // Focus editor
+        editor.focus();
+
+        // Restore selection if we have it
+        if (currentRange) {
+            sel?.removeAllRanges();
+            sel?.addRange(currentRange);
+        }
+
+        // Execute the command
+        try {
+            if (command === 'formatBlock' && value) {
+                // Remove < and > if present
+                const cleanValue = value.replace(/[<>]/g, '');
+                document.execCommand(command, false, cleanValue);
+            } else if (value) {
+                document.execCommand(command, false, value);
+            } else {
+                document.execCommand(command, false);
+            }
+        } catch (e) {
+            console.error(`Command '${command}' failed:`, e);
+        }
+
+        // Save new selection state
+        saveSelection();
+        handleInput();
+    };
+
+    const handleToolbar = useCallback((item) => {
+        const editor = editorRef.current;
+        if (!editor) return;
+
+        const sel = window.getSelection();
+        if (!sel) return;
+
+        // Save current selection before any focus changes
+        const savedRange = sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
+        setSavedSelection(savedRange);
+
         if (item.special === 'image') {
-            saveSelection();
-            setImageUrl('');
-            setImageAlt('');
             setShowImageDialog(true);
             return;
         }
-
         if (item.special === 'link') {
-            saveSelection();
-            const sel: Selection | null = window.getSelection();
-            setLinkText(sel?.toString() ?? '');
-            setLinkUrl('');
+            const linkTextContent = sel.toString();
+            setLinkText(linkTextContent);
             setShowLinkDialog(true);
             return;
         }
-
         if (item.special === 'code') {
-            editorRef.current?.focus();
-            restoreSelection();
-            const sel: Selection | null = window.getSelection();
-            if (!sel || sel.rangeCount === 0) return;
-
-            const range: Range = sel.getRangeAt(0);
-            const pre: HTMLPreElement = document.createElement('pre');
-            pre.style.background = '#f3f4f6';
-            pre.style.padding = '12px';
-            pre.style.borderRadius = '8px';
-            pre.style.overflowX = 'auto';
-            const code: HTMLElement = document.createElement('code');
-            code.textContent = sel.toString() || 'code here';
+            const selectedText = sel.toString();
+            const pre = document.createElement('pre');
+            const code = document.createElement('code');
+            code.textContent = selectedText || 'code here';
             pre.appendChild(code);
 
-            range.deleteContents();
-            range.insertNode(pre);
-
-            // Move cursor after the inserted node
-            range.setStartAfter(pre);
-            range.collapse(true);
-            sel.removeAllRanges();
-            sel.addRange(range);
-
-            syncContent();
+            if (savedRange) {
+                savedRange.deleteContents();
+                savedRange.insertNode(pre);
+                savedRange.setStartAfter(pre);
+                savedRange.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(savedRange);
+            } else {
+                editor.appendChild(pre);
+            }
+            saveSelection();
+            handleInput();
             return;
         }
 
-        if (item.command === 'formatBlock' && item.value) {
-            execCommand(item.command, item.value);
-        } else if (item.command) {
-            execCommand(item.command);
+        // For all other commands, execute directly
+        if (item.command) {
+            if (item.command === 'formatBlock') {
+                execCommand(item.command, item.value);
+            } else {
+                execCommand(item.command, null);
+            }
         }
+    }, [handleInput]);
+
+    const handleFileUpload = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        // Validate file type
+        if (!file.type.startsWith('image/')) {
+            alert('❌ Please select a valid image file (JPG, PNG, GIF, WebP)');
+            return;
+        }
+
+        // Validate file size (max 5MB)
+        const fileSizeMB = file.size / (1024 * 1024);
+        if (fileSizeMB > 5) {
+            alert(`❌ File size is ${fileSizeMB.toFixed(1)}MB. Max allowed is 5MB`);
+            return;
+        }
+
+        setImageLoading(true);
+
+        // Convert to base64/data URL
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const dataUrl = event.target?.result;
+            if (typeof dataUrl === 'string') {
+                setImageUrl(dataUrl);
+                setImageLoading(false);
+            }
+        };
+        reader.onerror = () => {
+            alert('❌ Failed to read image file');
+            setImageLoading(false);
+        };
+        reader.readAsDataURL(file);
+
+        // Reset file input for re-upload
+        e.target.value = '';
     };
 
-    /* ─── Dialog handlers ─── */
-    const insertImage = (): void => {
-        if (!imageUrl.trim()) return;
+    const handleInsertImage = () => {
+        if (!imageUrl.trim()) { setShowImageDialog(false); return; }
         editorRef.current?.focus();
         restoreSelection();
-        const safeUrl: string = imageUrl.replace(/"/g, '&quot;');
-        const safeAlt: string = (imageAlt || '').replace(/"/g, '&quot;');
-        const imgHtml = `<img src="${safeUrl}" alt="${safeAlt}" style="max-width:100%;height:auto;border-radius:8px;margin:8px 0;" />`;
-        exec('insertHTML', imgHtml);
-        syncContent();
+
+        const figure = document.createElement('figure');
+        figure.className = 'blog-figure';
+
+        const img = document.createElement('img');
+        img.src = imageUrl.trim();
+        img.alt = imageAlt.trim() || 'image';
+        img.className = 'blog-img';
+        img.onerror = function () {
+            this.remove();
+        };
+
+        figure.appendChild(img);
+
+        if (imageAlt.trim()) {
+            const caption = document.createElement('figcaption');
+            caption.textContent = imageAlt.trim();
+            figure.appendChild(caption);
+        }
+
+        const sel = window.getSelection();
+        if (sel.rangeCount > 0) {
+            const range = sel.getRangeAt(0);
+            range.deleteContents();
+            range.insertNode(figure);
+            range.setStartAfter(figure);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        } else {
+            editorRef.current?.appendChild(figure);
+        }
+
+        handleInput();
         setShowImageDialog(false);
         setImageUrl('');
         setImageAlt('');
     };
 
-    const insertLink = (): void => {
-        if (!linkUrl.trim()) return;
+    const handleInsertLink = () => {
+        if (!linkUrl.trim()) { setShowLinkDialog(false); return; }
         editorRef.current?.focus();
         restoreSelection();
-        const text: string = linkText.trim() || linkUrl;
-        const safeUrl: string = linkUrl.replace(/"/g, '&quot;');
-        const safeText: string = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const linkHtml = `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline;">${safeText}</a>`;
-        exec('insertHTML', linkHtml);
-        syncContent();
+
+        const text = linkText.trim() || linkUrl.trim();
+        const a = document.createElement('a');
+        a.href = linkUrl.trim();
+        a.textContent = text;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+
+        const sel = window.getSelection();
+        if (sel.rangeCount > 0) {
+            const range = sel.getRangeAt(0);
+            range.deleteContents();
+            range.insertNode(a);
+            range.setStartAfter(a);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+
+        handleInput();
         setShowLinkDialog(false);
         setLinkUrl('');
         setLinkText('');
     };
 
-    const handleImageError = (e: SyntheticEvent<HTMLImageElement>): void => {
-        e.currentTarget.style.display = 'none';
-    };
-
-    const handleModeToggle = (): void => {
-        if (mode === 'edit' && editorRef.current) {
-            setHtmlContent(editorRef.current.innerHTML);
-        }
-        setMode(mode === 'edit' ? 'preview' : 'edit');
-    };
-
-    const handleToolbarMouseDown = (e: MouseEvent<HTMLButtonElement>): void => {
-        // Prevent button from stealing focus from the editor
+    const handlePaste = (e) => {
+        // Paste as clean HTML, stripping dangerous scripts
         e.preventDefault();
+        const html = e.clipboardData.getData('text/html');
+        const text = e.clipboardData.getData('text/plain');
+
+        if (html) {
+            // Insert cleaned HTML
+            const temp = document.createElement('div');
+            temp.innerHTML = html;
+            // Remove scripts and event handlers
+            temp.querySelectorAll('script, style').forEach(el => el.remove());
+            temp.querySelectorAll('*').forEach(el => {
+                for (const attr of [...el.attributes]) {
+                    if (attr.name.startsWith('on')) el.removeAttribute(attr.name);
+                }
+            });
+            document.execCommand('insertHTML', false, temp.innerHTML);
+        } else {
+            document.execCommand('insertText', false, text);
+        }
+        handleInput();
     };
 
-    const handleDialogBackdrop = (setter: (v: boolean) => void) => (): void => {
-        setter(false);
+    const handleKeyDown = (e) => {
+        // Handle keyboard shortcuts for formatting
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+            const editor = editorRef.current;
+            if (!editor) return;
+            saveSelection();
+
+            switch (e.key.toLowerCase()) {
+                case 'b':
+                    e.preventDefault();
+                    execCommand('bold');
+                    return;
+                case 'i':
+                    e.preventDefault();
+                    execCommand('italic');
+                    return;
+                case 'u':
+                    e.preventDefault();
+                    execCommand('underline');
+                    return;
+                default:
+                    break;
+            }
+        }
+        // Tab key inserts spaces in code blocks
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            document.execCommand('insertText', false, '    ');
+        }
     };
 
-    const stopPropagation = (e: MouseEvent<HTMLDivElement>): void => {
-        e.stopPropagation();
-    };
-
-    /* ─── Shared prose classes ─── */
-    const proseClasses = `prose prose-sm max-w-none
-        [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:mb-3
-        [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mb-2
-        [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mb-2
-        [&_blockquote]:border-l-4 [&_blockquote]:border-blue-300 [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-gray-500
-        [&_pre]:bg-gray-100 [&_pre]:p-3 [&_pre]:rounded-lg [&_pre]:overflow-x-auto
-        [&_a]:text-blue-600 [&_a]:underline
-        [&_img]:max-w-full [&_img]:rounded-lg [&_img]:my-2`;
-
-    /* ─── Render ─── */
     return (
-        <div className="border border-gray-200 rounded-xl bg-white shadow-sm overflow-hidden relative">
+        <div className="border border-border-primary rounded-xl overflow-hidden bg-bg-card">
+            {/* Toolbar */}
+            <div className="flex flex-wrap items-center gap-0.5 px-3 py-2 bg-bg-secondary border-b border-border-primary">
+                {TOOLBAR.map((item) =>
+                    item.separator ? (
+                        <div key={item.key} className="w-px h-6 bg-border-primary mx-0.5" />
+                    ) : (
+                        <button
+                            key={item.key}
+                            type="button"
+                            onMouseDown={(e) => {
+                                // Keep text selection in contentEditable while clicking toolbar buttons.
+                                e.preventDefault();
+                                saveSelection();
+                            }}
+                            onClick={() => handleToolbar(item)}
+                            className="p-1.5 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
+                            title={item.label}
+                        >
+                            <item.icon size={16} />
+                        </button>
+                    )
+                )}
 
-            {/* Mode toggle */}
-            <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-100">
-                <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">
-                    {mode === 'edit' ? 'Editor' : 'Preview'}
-                </span>
-                <button
-                    type="button"
-                    onClick={handleModeToggle}
-                    className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors text-gray-600"
-                >
-                    {mode === 'edit' ? <><Eye size={13} /> Preview</> : <><Edit3 size={13} /> Edit</>}
-                </button>
+                <div className="flex-1" />
+
+                {/* Edit / Preview toggle */}
+                <div className="flex items-center bg-bg-tertiary rounded-lg p-0.5">
+                    <button type="button" onClick={() => switchMode('edit')}
+                        className={`px-3 py-1 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${mode === 'edit' ? 'bg-bg-card text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary'}`}>
+                        <Edit3 size={13} /> Edit
+                    </button>
+                    <button type="button" onClick={() => switchMode('preview')}
+                        className={`px-3 py-1 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${mode === 'preview' ? 'bg-bg-card text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary'}`}>
+                        <Eye size={13} /> Preview
+                    </button>
+                </div>
             </div>
 
+            {/* Editor / Preview Area */}
             {mode === 'edit' ? (
-                <>
-                    {/* Toolbar */}
-                    <div className="flex flex-wrap gap-1 p-3 bg-gray-50 border-b border-gray-200">
-                        {TOOLBAR.map((item) =>
-                            item.separator ? (
-                                <div key={item.key} className="w-px h-7 bg-gray-300 mx-1 self-center" />
-                            ) : (
-                                <button
-                                    key={item.key}
-                                    type="button"
-                                    title={item.label}
-                                    onMouseDown={handleToolbarMouseDown}
-                                    onClick={() => handleToolbar(item)}
-                                    className="p-2 rounded-lg hover:bg-gray-200 active:bg-gray-300 transition text-gray-600 hover:text-gray-900"
-                                >
-                                    {item.icon && <item.icon size={16} />}
-                                </button>
-                            )
-                        )}
-                    </div>
-
-                    {/* Editable area */}
+                <div className="flex flex-col">
                     <div
                         ref={editorRef}
                         contentEditable
                         suppressContentEditableWarning
-                        onInput={syncContent}
-                        onMouseUp={saveSelection}
-                        onKeyUp={saveSelection}
-                        className={`p-6 min-h-[400px] outline-none text-gray-700 ${proseClasses}`}
+                        onInput={handleInput}
+                        onPaste={handlePaste}
+                        onKeyDown={handleKeyDown}
+                        className="blog-content p-5 min-h-[400px] max-h-[600px] overflow-y-auto outline-none focus:outline-none"
+                        data-placeholder="Start writing your blog content...
+
+Click the toolbar buttons above to format your text:
+• Bold, Italic, Underline for text styling
+• H1, H2, H3 for headings
+• Lists, Blockquotes, Code blocks
+• Insert images and links
+
+Just select text and click a formatting button!"
+                        style={{ minHeight: '400px' }}
                     />
-                </>
+                    <div className="flex items-center justify-between px-4 py-2 border-t border-border-secondary text-text-tertiary text-xs">
+                        <span>{wordCount} words</span>
+                        <span>Select text → click toolbar to format</span>
+                    </div>
+                </div>
             ) : (
-                /* Preview mode */
-                <div
-                    className={`p-6 min-h-[400px] text-gray-700 ${proseClasses}`}
-                    dangerouslySetInnerHTML={{ __html: htmlContent }}
+                <div className="blog-content p-6 min-h-[400px] max-h-[600px] overflow-y-auto"
+                    ref={(el) => {
+                        if (!el) return;
+                        // Apply image fallback handlers to preview
+                        el.querySelectorAll('img').forEach(img => {
+                            img.onerror = function () {
+                                this.remove();
+                            };
+                        });
+                    }}
+                    dangerouslySetInnerHTML={{ __html: htmlContent || '<p style="color: var(--text-tertiary)">Switch to Edit mode to start writing...</p>' }}
                 />
             )}
 
-            {/* Footer */}
-            <div className="px-6 py-3 border-t text-xs text-gray-500 flex justify-between">
-                <span>{wordCount} words</span>
-                <span>{mode === 'edit' ? 'Editing' : 'Previewing'}</span>
-            </div>
-
-            {/* ─── Image Dialog ─── */}
+            {/* Image Dialog */}
             {showImageDialog && (
-                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={handleDialogBackdrop(setShowImageDialog)}>
-                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6" onClick={stopPropagation}>
-                        <div className="flex items-center justify-between mb-5">
-                            <h3 className="text-base font-bold text-gray-800">Insert Image</h3>
-                            <button type="button" onClick={() => setShowImageDialog(false)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
-                                <X size={18} />
-                            </button>
-                        </div>
+                <div className="fixed inset-0 bg-bg-overlay z-50 flex items-center justify-center p-4" onClick={() => setShowImageDialog(false)}>
+                    <div className="bg-bg-card border border-border-primary rounded-xl p-6 w-full max-w-md shadow-lg animate-scale-in" onClick={(e) => e.stopPropagation()}>
+                        <h3 className="text-lg font-semibold text-text-primary mb-4 flex items-center gap-2">
+                            <ImageIcon size={20} /> Insert Image
+                        </h3>
                         <div className="space-y-4">
-                            <div>
-                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Image URL *</label>
+                            {/* Method 1: Upload from Device */}
+                            <div className="border-2 border-dashed border-border-primary rounded-lg p-4 text-center bg-bg-secondary hover:border-text-secondary transition-colors">
+                                <button
+                                    type="button"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    disabled={imageLoading}
+                                    className="w-full flex flex-col items-center gap-2 text-text-secondary hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    <ImageIcon size={28} />
+                                    <span className="text-sm font-medium">
+                                        {imageLoading ? 'Uploading...' : 'Click to upload from device'}
+                                    </span>
+                                    <span className="text-xs text-text-tertiary">Max 5MB • JPG, PNG, GIF, WebP</span>
+                                </button>
                                 <input
-                                    type="url"
-                                    placeholder="https://example.com/photo.jpg"
-                                    value={imageUrl}
-                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setImageUrl(e.target.value)}
-                                    className={dialogInputCls}
-                                    autoFocus
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={handleFileUpload}
+                                    className="hidden"
+                                    disabled={imageLoading}
                                 />
                             </div>
-                            <div>
-                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Alt Text</label>
-                                <input
-                                    type="text"
-                                    placeholder="Describe the image"
-                                    value={imageAlt}
-                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setImageAlt(e.target.value)}
-                                    className={dialogInputCls}
+
+                            {/* Divider */}
+                            <div className="flex items-center gap-3">
+                                <div className="flex-1 h-px bg-border-primary"></div>
+                                <span className="text-xs text-text-tertiary font-medium">OR</span>
+                                <div className="flex-1 h-px bg-border-primary"></div>
+                            </div>
+
+                            {/* Method 2: Paste URL */}
+                            <div className="space-y-2">
+                                <label className="block text-sm font-medium text-text-secondary">Image URL</label>
+                                <input 
+                                    type="url" 
+                                    value={imageUrl} 
+                                    onChange={(e) => setImageUrl(e.target.value)}
+                                    placeholder="https://example.com/photo.jpg" 
+                                    className="input-clean w-full" 
+                                    disabled={imageLoading}
                                 />
                             </div>
+
+                            {/* Alt Text / Caption */}
+                            <div className="space-y-2">
+                                <label className="block text-sm font-medium text-text-secondary">Caption / Alt Text</label>
+                                <input 
+                                    type="text" 
+                                    value={imageAlt} 
+                                    onChange={(e) => setImageAlt(e.target.value)}
+                                    placeholder="Describe the image" 
+                                    className="input-clean w-full" 
+                                    disabled={imageLoading}
+                                />
+                            </div>
+
+                            {/* Image Preview */}
                             {imageUrl && (
-                                <div className="rounded-lg border border-gray-200 overflow-hidden">
-                                    <img
-                                        src={imageUrl}
-                                        alt="Preview"
-                                        className="w-full h-32 object-cover"
-                                        onError={handleImageError}
+                                <div className="border border-border-secondary rounded-lg p-3 bg-bg-secondary relative">
+                                    <p className="text-xs text-text-tertiary mb-2 font-medium">Preview:</p>
+                                    <img 
+                                        src={imageUrl} 
+                                        alt={imageAlt || 'preview'} 
+                                        className="max-h-40 rounded-md object-cover mx-auto"
+                                        onError={(e) => {
+                                            e.currentTarget.style.display = 'none';
+                                            const sibling = e.currentTarget.nextElementSibling;
+                                            if (sibling) {
+                                                sibling.style.display = 'flex';
+                                            }
+                                        }} 
                                     />
+                                    <div className="blog-img-fallback hidden flex-col items-center justify-center gap-2 py-4 text-text-tertiary">
+                                        <ImageOff size={24} />
+                                        <span className="text-sm">Could not load preview</span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setImageUrl('');
+                                            setImageAlt('');
+                                            if (fileInputRef.current) fileInputRef.current.value = '';
+                                        }}
+                                        className="absolute top-2 right-2 px-2 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded font-medium transition-colors"
+                                        title="Remove image"
+                                    >
+                                        ✕ Remove
+                                    </button>
                                 </div>
                             )}
-                            <div className="flex gap-3 pt-2">
-                                <button type="button" onClick={insertImage}
-                                    className="flex-1 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors"
-                                    style={{ background: '#195276' }}>
-                                    Insert Image
-                                </button>
-                                <button type="button" onClick={() => setShowImageDialog(false)}
-                                    className="px-5 text-sm font-medium text-gray-500 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
-                                    Cancel
-                                </button>
-                            </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex gap-2 mt-6">
+                            <button 
+                                type="button" 
+                                onClick={() => {
+                                    setShowImageDialog(false);
+                                    setImageUrl('');
+                                    setImageAlt('');
+                                }} 
+                                className="btn-secondary flex-1 text-sm py-2"
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                type="button" 
+                                onClick={handleInsertImage} 
+                                disabled={!imageUrl.trim() || imageLoading} 
+                                className="btn-primary flex-1 text-sm py-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                                Insert Image
+                            </button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* ─── Link Dialog ─── */}
+            {/* Link Dialog */}
             {showLinkDialog && (
-                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={handleDialogBackdrop(setShowLinkDialog)}>
-                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6" onClick={stopPropagation}>
-                        <div className="flex items-center justify-between mb-5">
-                            <h3 className="text-base font-bold text-gray-800">Insert Link</h3>
-                            <button type="button" onClick={() => setShowLinkDialog(false)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
-                                <X size={18} />
-                            </button>
+                <div className="fixed inset-0 bg-bg-overlay z-50 flex items-center justify-center p-4" onClick={() => setShowLinkDialog(false)}>
+                    <div className="bg-bg-card border border-border-primary rounded-xl p-6 w-full max-w-md shadow-lg animate-scale-in" onClick={(e) => e.stopPropagation()}>
+                        <h3 className="text-lg font-semibold text-text-primary mb-4 flex items-center gap-2">
+                            <LinkIcon size={20} /> Insert Link
+                        </h3>
+                        <div className="space-y-3">
+                            <div>
+                                <label className="block text-sm font-medium text-text-secondary mb-1">URL *</label>
+                                <input type="url" value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)}
+                                    placeholder="https://example.com" className="input-clean w-full" autoFocus />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-text-secondary mb-1">Link Text</label>
+                                <input type="text" value={linkText} onChange={(e) => setLinkText(e.target.value)}
+                                    placeholder="Click here" className="input-clean w-full" />
+                            </div>
                         </div>
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">URL *</label>
-                                <input
-                                    type="url"
-                                    placeholder="https://example.com"
-                                    value={linkUrl}
-                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLinkUrl(e.target.value)}
-                                    className={dialogInputCls}
-                                    autoFocus
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Display Text</label>
-                                <input
-                                    type="text"
-                                    placeholder="Click here"
-                                    value={linkText}
-                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLinkText(e.target.value)}
-                                    className={dialogInputCls}
-                                />
-                            </div>
-                            <div className="flex gap-3 pt-2">
-                                <button type="button" onClick={insertLink}
-                                    className="flex-1 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors"
-                                    style={{ background: '#195276' }}>
-                                    Insert Link
-                                </button>
-                                <button type="button" onClick={() => setShowLinkDialog(false)}
-                                    className="px-5 text-sm font-medium text-gray-500 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
-                                    Cancel
-                                </button>
-                            </div>
+                        <div className="flex gap-2 mt-5">
+                            <button type="button" onClick={() => setShowLinkDialog(false)} className="btn-secondary flex-1 text-sm py-2">Cancel</button>
+                            <button type="button" onClick={handleInsertLink} disabled={!linkUrl.trim()} className="btn-primary flex-1 text-sm py-2 disabled:opacity-40">Insert</button>
                         </div>
                     </div>
                 </div>

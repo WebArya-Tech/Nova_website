@@ -1,223 +1,363 @@
-import React, { useState } from 'react'
-import { Eye, EyeOff } from 'lucide-react'
-import { useAuth } from '../../context/AuthContext'
+import React, { useState, useEffect, useRef } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
+import { useAuth, verifyOtp } from '../../context/AuthContext';
+import { sendOtpEmail } from '../../utils/otpUtils';
+import { useNavigate } from 'react-router-dom';
+
+const OTP_DURATION = 300; // 5 minutes in seconds
+
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface SignupModalProps {
-  isOpen: boolean
-  onClose: () => void
-  onOpenLogin?: () => void
+  isOpen: boolean;
+  onClose: () => void;
+  onOpenLogin: () => void;
 }
 
-interface SignupData {
-  fullName: string
-  email: string
-  phone: string
-  password: string
-  confirmPassword: string
-}
+export default function SignupModal({ isOpen, onClose, onOpenLogin }: SignupModalProps) {
+  const { signup } = useAuth()
+  const navigate = useNavigate()
 
-interface SignupResult {
-  success: boolean
-  message?: string
-}
+  // step: 'form' | 'otp'
+  const [step, setStep] = useState<'form' | 'otp'>('form');
+  const [formData, setFormData] = useState({ fullName: '', email: '', phone: '', password: '', confirmPassword: '' });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [otpInput, setOtpInput] = useState('');
+  const [otpError, setOtpError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(OTP_DURATION);
+  const [otpExpired, setOtpExpired] = useState(false);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-export default function SignupModal({
-  isOpen,
-  onClose,
-  onOpenLogin = () => {},
-}: SignupModalProps) {
-  const { signup } = useAuth() as {
-    signup: (
-      fullName: string,
-      email: string,
-      phone: string,
-      password: string
-    ) => SignupResult
+  const startTimer = () => {
+    setTimeLeft(OTP_DURATION);
+    setOtpExpired(false);
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          if (timerRef.current) clearInterval(timerRef.current);
+          setOtpExpired(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  useEffect(() => () => { if (timerRef.current) clearInterval(timerRef.current); }, []);
+
+  const formatTime = (secs: number) => {
+    const m = Math.floor(secs / 60).toString().padStart(2, '0');
+    const s = (secs % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  };
+
+  const validate = () => {
+    const e = {}
+    if (!formData.fullName.trim()) e.fullName = 'Full name is required'
+    if (!formData.email.trim()) {
+      e.email = 'Email is required'
+    } else if (!emailRegex.test(formData.email)) {
+      e.email = 'Please enter a valid email address'
+    }
+    if (!formData.phone.trim()) {
+      e.phone = 'Phone number is required'
+    } else if (!/^\d{10}$/.test(formData.phone)) {
+      e.phone = 'Phone number must be exactly 10 digits'
+    }
+    if (!formData.password) {
+      e.password = 'Password is required'
+    } else if (formData.password.length < 6) {
+      e.password = 'Password must be at least 6 characters'
+    }
+    if (!formData.confirmPassword) {
+      e.confirmPassword = 'Please confirm your password'
+    } else if (formData.password !== formData.confirmPassword) {
+      e.confirmPassword = 'Passwords do not match'
+    }
+    return e
   }
 
-  const [signupData, setSignupData] = useState<SignupData>({
-    fullName: '',
-    email: '',
-    phone: '',
-    password: '',
-    confirmPassword: '',
-  })
-
-  const [error, setError] = useState<string>('')
-  const [isLoading, setIsLoading] = useState<boolean>(false)
-  const [showPassword, setShowPassword] = useState<boolean>(false)
-  const [showConfirmPassword, setShowConfirmPassword] = useState<boolean>(false)
-
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSendOtp = (e) => {
     e.preventDefault()
-    setError('')
+    const e2 = validate()
+    if (Object.keys(e2).length > 0) { setErrors(e2); return }
+    setErrors({})
+    setIsLoading(true)
+    setTimeout(() => {
+      sendOtpEmail(formData.email)
+      setIsLoading(false)
+      setOtpInput('')
+      setOtpError('')
+      setStep('otp')
+      startTimer()
+    }, 500)
+  }
 
-    if (signupData.password !== signupData.confirmPassword) {
-      setError('Passwords do not match!')
-      return
-    }
+  const handleResendOtp = () => {
+    setIsLoading(true)
+    setTimeout(() => {
+      sendOtpEmail(formData.email)
+      setIsLoading(false)
+      setOtpInput('')
+      setOtpError('')
+      startTimer()
+    }, 500)
+  }
 
-    if (signupData.password.length < 6) {
-      setError('Password must be at least 6 characters long')
-      return
-    }
+  const handleVerifyAndSignup = (e) => {
+    e.preventDefault()
+    if (otpInput.length !== 6) { setOtpError('Please enter the 6-digit OTP'); return }
+    if (otpExpired) { setOtpError('OTP has expired. Please resend.'); return }
+
+    const result = verifyOtp(formData.email, otpInput)
+    if (!result.valid) { setOtpError(result.message); return }
 
     setIsLoading(true)
-
-    try {
-      const result = signup(
-        signupData.fullName,
-        signupData.email,
-        signupData.phone,
-        signupData.password
-      )
-
-      if (result.success) {
-        setSignupData({
-          fullName: '',
-          email: '',
-          phone: '',
-          password: '',
-          confirmPassword: '',
-        })
-
-        onClose()
-
-        // Redirect to student dashboard
-        window.history.pushState({}, '', '/student-dashboard')
-        window.dispatchEvent(new PopStateEvent('popstate'))
-      } else {
-        setError(result.message || 'Failed to create account')
-      }
-    } catch (err) {
-      setError('An error occurred during signup')
-      console.error('Signup error:', err)
-    } finally {
+    setTimeout(() => {
+      const signupResult = signup(formData.fullName, formData.email, formData.phone, formData.password)
       setIsLoading(false)
-    }
+      if (signupResult.success) {
+        clearInterval(timerRef.current)
+        handleClose()
+        navigate('/student-dashboard')
+      } else {
+        setOtpError(signupResult.message || 'Failed to create account')
+      }
+    }, 500)
+  }
+
+  const handleClose = () => {
+    clearInterval(timerRef.current)
+    setStep('form')
+    setFormData({ fullName: '', email: '', phone: '', password: '', confirmPassword: '' })
+    setErrors({})
+    setOtpInput('')
+    setOtpError('')
+    setIsLoading(false)
+    setOtpExpired(false)
+    onClose()
+  }
+
+  const handlePhoneChange = (e) => {
+    const val = e.target.value.replace(/\D/g, '').slice(0, 10)
+    setFormData(prev => ({ ...prev, phone: val }))
+    if (errors.phone) setErrors(prev => ({ ...prev, phone: '' }))
+  }
+
+  const handleFieldChange = (field, value) => {
+    setFormData(prev => ({ ...prev, [field]: value }))
+    if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }))
   }
 
   if (!isOpen) return null
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-[9999] bg-black/50 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 bg-blue-950/70 backdrop-blur-sm flex items-center justify-center z-[9999] p-4" onClick={handleClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="p-6 border-b-4 sticky top-0 bg-white" style={{ borderBottomColor: '#ddaa2c' }}>
-          <div className="flex justify-between items-center">
-            <h2 className="text-3xl font-black" style={{ color: '#196d83' }}>
-              Sign Up
-            </h2>
-            <button
-              onClick={onClose}
-              className="text-gray-500 hover:text-gray-700 text-3xl font-bold"
-            >
-              ×
-            </button>
+        <div className="relative bg-blue-900 px-6 pt-8 pb-6 sticky top-0 z-10">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-yellow-400 via-orange-400 to-yellow-400" />
+          <div className="flex justify-between items-start">
+            <div>
+              <h2 className="text-2xl font-black text-white tracking-tight">{step === 'form' ? 'Create Account' : 'Verify Email'}</h2>
+              <p className="text-blue-300 mt-1 text-sm">
+                {step === 'form' ? 'Join iThinkLearn today' : `OTP sent to ${formData.email}`}
+              </p>
+            </div>
+            <button onClick={handleClose} className="text-blue-300 hover:text-white text-2xl font-bold transition leading-none mt-0.5">×</button>
           </div>
-          <p className="text-gray-600 mt-2">Create your account</p>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {error && (
-            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm">
-              {error}
-            </div>
+        <div className="px-6 py-6">
+          {/* STEP 1: Registration Form */}
+          {step === 'form' && (
+            <form onSubmit={handleSendOtp} noValidate>
+              <div className="space-y-4">
+                {/* Full Name */}
+                <div>
+                  <label className="block text-xs font-bold mb-1.5 text-blue-900 uppercase tracking-wide">Full Name</label>
+                  <input
+                    type="text"
+                    value={formData.fullName}
+                    onChange={e => handleFieldChange('fullName', e.target.value)}
+                    className={`w-full px-4 py-3 border-2 rounded-xl focus:outline-none transition text-gray-800 text-sm bg-gray-50 focus:bg-white ${errors.fullName ? 'border-red-400 focus:border-red-400' : 'border-gray-200 focus:border-blue-900'}`}
+                    placeholder="Enter your full name"
+                  />
+                  {errors.fullName && <p className="text-xs text-red-500 mt-1">{errors.fullName}</p>}
+                </div>
+
+                {/* Email */}
+                <div>
+                  <label className="block text-xs font-bold mb-1.5 text-blue-900 uppercase tracking-wide">Email Address</label>
+                  <input
+                    type="email"
+                    value={formData.email}
+                    onChange={e => handleFieldChange('email', e.target.value)}
+                    className={`w-full px-4 py-3 border-2 rounded-xl focus:outline-none transition text-gray-800 text-sm bg-gray-50 focus:bg-white ${errors.email ? 'border-red-400 focus:border-red-400' : 'border-gray-200 focus:border-blue-900'}`}
+                    placeholder="Enter your email"
+                  />
+                  {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email}</p>}
+                </div>
+
+                {/* Phone */}
+                <div>
+                  <label className="block text-xs font-bold mb-1.5 text-blue-900 uppercase tracking-wide">Phone Number</label>
+                  <input
+                    type="tel"
+                    value={formData.phone}
+                    onChange={handlePhoneChange}
+                    inputMode="numeric"
+                    maxLength={10}
+                    className={`w-full px-4 py-3 border-2 rounded-xl focus:outline-none transition text-gray-800 text-sm bg-gray-50 focus:bg-white ${errors.phone ? 'border-red-400 focus:border-red-400' : 'border-gray-200 focus:border-blue-900'}`}
+                    placeholder="Enter 10-digit phone number"
+                  />
+                  {errors.phone
+                    ? <p className="text-xs text-red-500 mt-1">{errors.phone}</p>
+                    : <p className="text-xs text-gray-400 mt-1">Must be exactly 10 digits</p>
+                  }
+                </div>
+
+                {/* Password */}
+                <div>
+                  <label className="block text-xs font-bold mb-1.5 text-blue-900 uppercase tracking-wide">Password</label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={formData.password}
+                      onChange={e => handleFieldChange('password', e.target.value)}
+                      className={`w-full px-4 py-3 pr-12 border-2 rounded-xl focus:outline-none transition text-gray-800 text-sm bg-gray-50 focus:bg-white ${errors.password ? 'border-red-400 focus:border-red-400' : 'border-gray-200 focus:border-blue-900'}`}
+                      placeholder="Create a password"
+                    />
+                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-900 transition" tabIndex={-1}>
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                  {errors.password
+                    ? <p className="text-xs text-red-500 mt-1">{errors.password}</p>
+                    : <p className="text-xs text-gray-400 mt-1">Minimum 6 characters</p>
+                  }
+                </div>
+
+                {/* Confirm Password */}
+                <div>
+                  <label className="block text-xs font-bold mb-1.5 text-blue-900 uppercase tracking-wide">Confirm Password</label>
+                  <div className="relative">
+                    <input
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      value={formData.confirmPassword}
+                      onChange={e => handleFieldChange('confirmPassword', e.target.value)}
+                      className={`w-full px-4 py-3 pr-12 border-2 rounded-xl focus:outline-none transition text-gray-800 text-sm bg-gray-50 focus:bg-white ${errors.confirmPassword ? 'border-red-400 focus:border-red-400' : 'border-gray-200 focus:border-blue-900'}`}
+                      placeholder="Confirm your password"
+                    />
+                    <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-900 transition" tabIndex={-1}>
+                      {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                  {errors.confirmPassword && <p className="text-xs text-red-500 mt-1">{errors.confirmPassword}</p>}
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full py-3 rounded-xl font-bold text-base bg-gradient-to-r from-yellow-400 to-orange-500 text-blue-900 hover:from-yellow-300 hover:to-orange-400 transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+                >
+                  {isLoading ? (
+                    <span className="flex items-center justify-center gap-2"><span className="w-4 h-4 border-2 border-blue-900/30 border-t-blue-900 rounded-full animate-spin" />Sending OTP...</span>
+                  ) : 'Send OTP →'}
+                </button>
+
+                <div className="text-center pt-3 border-t border-gray-100">
+                  <p className="text-sm text-gray-500">
+                    Already have an account?{' '}
+                    <button type="button" onClick={() => { onClose(); onOpenLogin() }} className="font-bold text-blue-900 hover:text-blue-700 hover:underline transition">
+                      Login
+                    </button>
+                  </p>
+                </div>
+              </div>
+            </form>
           )}
 
-          {/* Inputs */}
-          {(['fullName', 'email', 'phone'] as const).map((field) => (
-            <input
-              key={field}
-              type={field === 'email' ? 'email' : 'text'}
-              placeholder={field}
-              required
-              value={signupData[field]}
-              onChange={(e) =>
-                setSignupData({ ...signupData, [field]: e.target.value })
-              }
-              className="w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:border-[#ddaa2c]"
-            />
-          ))}
+          {/* STEP 2: OTP Verification */}
+          {step === 'otp' && (
+            <form onSubmit={handleVerifyAndSignup} noValidate>
+              <div className="space-y-4">
+                {/* Info banner */}
+                <div className="bg-blue-50 border-l-4 border-blue-900 rounded-r-xl p-4">
+                  <p className="text-sm text-gray-700">
+                    A 6-digit OTP has been sent to <strong className="text-blue-900">{formData.email}</strong>.
+                  </p>
+                  <p className="text-xs text-orange-600 font-semibold mt-1">⚠️ This OTP is valid for 5 minutes only.</p>
+                </div>
 
-          {/* Password */}
-          <div className="relative">
-            <input
-              type={showPassword ? 'text' : 'password'}
-              placeholder="Password"
-              required
-              value={signupData.password}
-              onChange={(e) =>
-                setSignupData({ ...signupData, password: e.target.value })
-              }
-              className="w-full px-4 py-3 border-2 rounded-lg pr-10"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-3"
-            >
-              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-            </button>
-          </div>
+                {/* Countdown Timer */}
+                <div className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-bold text-base border-2 ${
+                  otpExpired
+                    ? 'bg-red-50 text-red-600 border-red-200'
+                    : timeLeft <= 60
+                    ? 'bg-yellow-50 text-yellow-700 border-yellow-300'
+                    : 'bg-blue-900 text-white border-blue-900'
+                }`}>
+                  <span>⏱</span>
+                  {otpExpired
+                    ? <span>OTP Expired — Please resend</span>
+                    : <span>Expires in: <span className="font-black tabular-nums">{formatTime(timeLeft)}</span></span>
+                  }
+                </div>
 
-          {/* Confirm Password */}
-          <div className="relative">
-            <input
-              type={showConfirmPassword ? 'text' : 'password'}
-              placeholder="Confirm Password"
-              required
-              value={signupData.confirmPassword}
-              onChange={(e) =>
-                setSignupData({
-                  ...signupData,
-                  confirmPassword: e.target.value,
-                })
-              }
-              className="w-full px-4 py-3 border-2 rounded-lg pr-10"
-            />
-            <button
-              type="button"
-              onClick={() =>
-                setShowConfirmPassword(!showConfirmPassword)
-              }
-              className="absolute right-3 top-3"
-            >
-              {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-            </button>
-          </div>
+                {/* OTP Input */}
+                <div>
+                  <label className="block text-xs font-bold mb-1.5 text-blue-900 uppercase tracking-wide">Enter OTP</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={otpInput}
+                    onChange={e => { setOtpInput(e.target.value.replace(/\D/g, '').slice(0, 6)); setOtpError('') }}
+                    className={`w-full px-4 py-3 border-2 rounded-xl focus:outline-none transition text-center text-2xl font-black tracking-[0.5em] text-blue-900 bg-gray-50 focus:bg-white ${otpError ? 'border-red-400 focus:border-red-400' : 'border-gray-200 focus:border-blue-900'}`}
+                    placeholder="------"
+                    disabled={otpExpired}
+                  />
+                  {otpError && <p className="text-xs text-red-500 mt-1 text-center font-medium">{otpError}</p>}
+                </div>
 
-          {/* Submit */}
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full py-3 bg-[#ddaa2c] text-white font-bold rounded-lg"
-          >
-            {isLoading ? 'Creating Account...' : 'Create Account'}
-          </button>
+                {/* Resend OTP */}
+                <div className="text-center">
+                  <button
+                    type="button"
+                    onClick={handleResendOtp}
+                    disabled={isLoading}
+                    className="text-sm font-bold text-blue-700 hover:text-blue-900 hover:underline disabled:opacity-50 transition"
+                  >
+                    {isLoading ? 'Sending...' : "Didn't receive code? Resend OTP"}
+                  </button>
+                </div>
 
-          {/* Login */}
-          <p className="text-center text-sm">
-            Already have an account?{' '}
-            <button
-              type="button"
-              onClick={() => {
-                onClose()
-                onOpenLogin()
-              }}
-              className="text-[#196d83] font-semibold"
-            >
-              Login
-            </button>
-          </p>
-        </form>
+                <button
+                  type="submit"
+                  disabled={isLoading || otpInput.length !== 6 || otpExpired}
+                  className="w-full py-3 rounded-xl font-bold text-base bg-gradient-to-r from-yellow-400 to-orange-500 text-blue-900 hover:from-yellow-300 hover:to-orange-400 transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+                >
+                  {isLoading ? (
+                    <span className="flex items-center justify-center gap-2"><span className="w-4 h-4 border-2 border-blue-900/30 border-t-blue-900 rounded-full animate-spin" />Verifying...</span>
+                  ) : 'Verify & Create Account'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { clearInterval(timerRef.current); setStep('form'); setOtpInput(''); setOtpError('') }}
+                  className="w-full py-2 text-sm font-semibold text-gray-500 hover:text-blue-900 transition"
+                >
+                  ← Change Details
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   )

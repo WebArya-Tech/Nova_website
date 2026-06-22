@@ -5,6 +5,7 @@ import AdminHome from './AdminHome'
 import StudentManagement from './StudentManagement'
 import QuestionManagement from './QuestionManagement'
 import DemoClassRequests from './DemoClassRequests'
+import DemoRequestsManagement from './DemoRequestsManagement'
 import CourseManagement from './CourseManagement'
 import FeePaymentManagement from './FeePaymentManagement'
 import FeedbackManagement from './FeedbackManagement'
@@ -12,6 +13,7 @@ import PracticeTestManagement from './PracticeTestManagement'
 import HomeworkManagement from './HomeworkManagement'
 import TestimonialManagement from './TestimonialManagement'
 import AnnouncementManagement from './AnnouncementManagement'
+import RunningClassesManagement from './RunningClassesManagement'
 import { BlogModerationPage } from './BlogModerationPage'
 import { SubscribersPage } from './SubscribersPage'
 import { CommentManagement } from './CommentManagement'
@@ -86,7 +88,9 @@ export default function AdminDashboard() {
       case 'questions':
         return <QuestionManagement />
       case 'demo-requests':
-        return <DemoClassRequests />
+        return <DemoRequestsManagement />
+      case 'running-classes':
+        return <RunningClassesManagement />
       case 'homework':
         return <HomeworkManagement />
       case 'practice-tests':

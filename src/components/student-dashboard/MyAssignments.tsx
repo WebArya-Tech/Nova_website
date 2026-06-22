@@ -22,7 +22,18 @@ export default function MyAssignments() {
     try {
       setLoading(true)
       setError(null)
-      
+
+      // Load from localStorage first
+      const saved = localStorage.getItem('nova_assignments')
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (parsed.length > 0) {
+          setAssignments(parsed)
+          setLoading(false)
+          return
+        }
+      }
+
       // API file not created - using mock data directly
       try {
         // const response = await homeworkApi.getStudentAssignments()
@@ -109,11 +120,14 @@ export default function MyAssignments() {
   }
 
   const handleSubmitAssignment = (assignmentId) => {
-    setAssignments(assignments.map(a =>
+    const submittedDate = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+    const updated = assignments.map(a =>
       a.id === assignmentId
-        ? { ...a, status: 'submitted', daysLeft: null, dueDate: `Submitted on ${new Date().toLocaleDateString()}` }
+        ? { ...a, status: 'submitted', daysLeft: null, dueDate: `Submitted on ${submittedDate}` }
         : a
-    ))
+    )
+    setAssignments(updated)
+    localStorage.setItem('nova_assignments', JSON.stringify(updated))
     setShowSubmitModal(false)
     alert('Assignment submitted successfully!')
   }

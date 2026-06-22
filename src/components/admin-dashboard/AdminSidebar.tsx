@@ -16,6 +16,7 @@ export default function AdminSidebar({ currentView, setCurrentView, sidebarOpen 
     { id: 'courses', label: 'Courses' },
     { id: 'fee-payment', label: 'Fee Payments' },
     { id: 'demo-requests', label: 'Demo Requests' },
+    { id: 'running-classes', label: 'Running Classes' },
     { id: 'homework', label: 'Homework' },
     { id: 'practice-tests', label: 'Practice Tests' },
     { id: 'questions', label: 'Q&A Management' },

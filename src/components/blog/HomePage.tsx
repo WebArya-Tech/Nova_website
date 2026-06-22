@@ -116,12 +116,12 @@ export const HomePage: React.FC = () => {
                     <div className="absolute top-1/3 right-1/4 w-36 h-36 rounded-full bg-white/[0.03]" />
                 </div>
 
-                <div className="relative max-w-5xl mx-auto px-6 py-16 md:py-24 text-center">
+                <div className="relative max-w-5xl mx-auto px-6 py-8 md:py-6 text-center">
                     <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold mb-4 md:mb-6 leading-tight tracking-tight">
                         Learn. Grow. Excel.
                     </h1>
 
-                    <p className="text-white/80 text-sm sm:text-base md:text-lg mb-8 md:mb-12 max-w-2xl mx-auto leading-relaxed">
+                    <p className="text-white/80 text-sm sm:text-base md:text-lg mb-6 md:mb-6 max-w-2xl mx-auto leading-relaxed">
                         Tips, strategies and insights to help students ace their boards and beyond.
                     </p>
 
